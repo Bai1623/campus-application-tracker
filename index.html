@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d9488" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="秋招投递" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="description" content="本地保存的秋招投递状态管理工具，支持手机浏览器和主屏幕安装。" />
+    <title>秋招投递管理</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./app-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar" aria-label="筛选与导航">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">秋</span>
+          <div>
+            <p class="eyebrow">Campus Hunt</p>
+            <h1>秋招投递管理</h1>
+          </div>
+        </div>
+
+        <section class="account-panel" aria-label="账号空间">
+          <div class="section-label">当前账号</div>
+          <div class="account-row">
+            <select id="accountSelect" class="select-input" aria-label="选择账号"></select>
+            <button id="addAccountBtn" class="icon-button secondary compact" type="button" aria-label="新增账号" title="新增账号">
+              <span data-icon="plus"></span>
+            </button>
+          </div>
+          <div class="account-actions">
+            <button id="renameAccountBtn" class="mini-button" type="button">重命名</button>
+            <button id="deleteAccountBtn" class="mini-button danger-mini" type="button">删除账号</button>
+          </div>
+          <p class="account-note">每个账号的数据本地隔离保存。</p>
+        </section>
+
+        <div class="search-box">
+          <span data-icon="search"></span>
+          <input id="searchInput" type="search" placeholder="搜索公司、岗位、来源" autocomplete="off" />
+        </div>
+
+        <section class="side-section">
+          <div class="section-label">状态筛选</div>
+          <div id="statusFilters" class="filter-stack"></div>
+        </section>
+
+        <section class="side-section">
+          <div class="section-label">来源类型</div>
+          <select id="sourceFilter" class="select-input">
+            <option value="all">全部来源</option>
+          </select>
+        </section>
+
+        <section class="side-section">
+          <div class="section-label">排序</div>
+          <select id="sortSelect" class="select-input">
+            <option value="updatedDesc">星级优先 · 最近更新</option>
+            <option value="staleDesc">星级优先 · 最久未更新</option>
+            <option value="appliedDesc">星级优先 · 最近投递</option>
+            <option value="companyAsc">星级优先 · 公司名称</option>
+          </select>
+        </section>
+
+        <section class="side-section check-panel">
+          <div class="section-label">今日待检查</div>
+          <div id="dueList" class="due-list"></div>
+        </section>
+      </aside>
+
+      <main class="main-shell">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">本地保存 · 快速更新 · 面试节奏</p>
+            <h2>你的秋招进度工作台</h2>
+          </div>
+          <div class="top-actions">
+            <button id="exportBtn" class="icon-button secondary" type="button" aria-label="导出数据" title="导出数据">
+              <span data-icon="download"></span>
+            </button>
+            <label class="icon-button secondary" aria-label="导入数据" title="导入数据">
+              <span data-icon="upload"></span>
+              <input id="importInput" type="file" accept="application/json" hidden />
+            </label>
+            <button id="mobileBtn" class="icon-button secondary" type="button" aria-label="手机打开" title="手机打开">
+              <span data-icon="phone"></span>
+            </button>
+            <button id="addBtn" class="primary-button" type="button" onclick="try{window.__trackerOpenAdd&&window.__trackerOpenAdd()}catch(e){};if(!document.getElementById('recordDialog').classList.contains('is-open')){window.__trackerOpenRecordFallback&&window.__trackerOpenRecordFallback()}">
+              <span data-icon="plus"></span>
+              添加记录
+            </button>
+          </div>
+        </header>
+
+        <section id="statsGrid" class="stats-grid" aria-label="投递统计"></section>
+
+        <section class="toolbar">
+          <div class="view-tabs" role="tablist" aria-label="视图切换">
+            <button class="tab-button active" type="button" data-view="board">看板</button>
+            <button class="tab-button" type="button" data-view="table">列表</button>
+            <button class="tab-button" type="button" data-view="insights">统计</button>
+          </div>
+          <div id="resultMeta" class="result-meta"></div>
+        </section>
+
+        <section id="boardView" class="board-view" aria-label="状态看板"></section>
+        <section id="tableView" class="table-view hidden" aria-label="投递列表"></section>
+        <section id="insightsView" class="insights-view hidden" aria-label="投递统计分析"></section>
+      </main>
+    </div>
+
+    <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+    <aside id="detailDrawer" class="detail-drawer hidden" aria-label="记录详情" aria-hidden="true"></aside>
+    <div id="modalBackdrop" class="modal-backdrop hidden"></div>
+
+    <section id="recordDialog" class="record-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true">
+      <form id="recordForm" novalidate>
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Application Record</p>
+            <h3 id="dialogTitle">添加投递记录</h3>
+          </div>
+          <button class="icon-button ghost" value="cancel" type="button" id="closeDialogBtn" aria-label="关闭" title="关闭" onclick="window.__trackerCloseRecordFallback&&window.__trackerCloseRecordFallback()">
+            <span data-icon="x"></span>
+          </button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>公司名称</span>
+            <input name="company" required maxlength="60" placeholder="例如：腾讯" />
+          </label>
+          <label>
+            <span>岗位名称</span>
+            <input name="position" maxlength="80" placeholder="例如：后端开发工程师" />
+          </label>
+          <label>
+            <span>当前状态</span>
+            <select name="status" required></select>
+          </label>
+          <label>
+            <span>来源类型</span>
+            <select name="sourceType" required></select>
+          </label>
+          <label id="sourceDetailField" class="hidden">
+            <span id="sourceDetailLabel">自定义网址</span>
+            <input name="sourceDetail" maxlength="200" placeholder="https://example.com/recruit" />
+          </label>
+          <label>
+            <span>投递日期</span>
+            <input name="appliedAt" type="date" required />
+          </label>
+          <label>
+            <span>更新时间</span>
+            <input name="updatedAt" type="date" required />
+          </label>
+          <label>
+            <span>下次检查</span>
+            <input name="nextCheckAt" type="date" />
+          </label>
+          <label>
+            <span>重要程度</span>
+            <select name="importance">
+              <option value="1">★ 1 星</option>
+              <option value="2">★★ 2 星</option>
+              <option value="3">★★★ 3 星</option>
+              <option value="4">★★★★ 4 星</option>
+              <option value="5">★★★★★ 5 星</option>
+            </select>
+          </label>
+          <label class="wide">
+            <span>备注 / 本次更新</span>
+            <textarea name="note" rows="4" maxlength="500" placeholder="记录你这次查询到的状态、面试时间或注意事项"></textarea>
+          </label>
+        </div>
+
+        <p id="formError" class="form-error" role="alert"></p>
+
+        <div class="dialog-actions">
+          <button id="deleteFromFormBtn" class="danger-button hidden" type="button">
+            <span data-icon="trash"></span>
+            删除
+          </button>
+          <span class="dialog-spacer"></span>
+          <button class="text-button" value="cancel" type="button" id="cancelDialogBtn" onclick="window.__trackerCloseRecordFallback&&window.__trackerCloseRecordFallback()">取消</button>
+          <button class="primary-button" id="saveRecordBtn" type="submit">
+            <span data-icon="check"></span>
+            保存
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section id="exportDialog" class="record-dialog export-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">Data Backup</p>
+          <h3>导出投递记录</h3>
+        </div>
+        <button class="icon-button ghost" type="button" id="closeExportDialogBtn" aria-label="关闭" title="关闭">
+          <span data-icon="x"></span>
+        </button>
+      </div>
+      <div class="export-content">
+        <button id="shareExportBtn" class="export-option" type="button">
+          <span data-icon="share"></span>
+          <strong>系统分享</strong>
+          <small>发到微信、文件、网盘或其他应用</small>
+        </button>
+        <button id="saveExportBtn" class="export-option" type="button">
+          <span data-icon="download"></span>
+          <strong>保存 JSON 文件</strong>
+          <small>选择手机或电脑上的保存位置</small>
+        </button>
+        <button id="copyExportBtn" class="export-option" type="button">
+          <span data-icon="copy"></span>
+          <strong>复制 JSON</strong>
+          <small>复制到剪贴板，适合发消息给电脑</small>
+        </button>
+      </div>
+    </section>
+
+    <section id="mobileDialog" class="record-dialog mobile-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">Mobile Access</p>
+          <h3>在手机上打开</h3>
+        </div>
+        <button class="icon-button ghost" type="button" id="closeMobileDialogBtn" aria-label="关闭" title="关闭">
+          <span data-icon="x"></span>
+        </button>
+      </div>
+      <div class="mobile-content">
+        <section class="mobile-card">
+          <div class="mobile-card-head">
+            <span class="mobile-step">1</span>
+            <strong>让电脑临时提供访问地址</strong>
+          </div>
+          <code class="command-line">python3 -m http.server 5173 --bind 0.0.0.0</code>
+        </section>
+        <section class="mobile-card">
+          <div class="mobile-card-head">
+            <span class="mobile-step">2</span>
+            <strong>手机和电脑连同一个 Wi-Fi</strong>
+          </div>
+          <p>手机浏览器打开电脑局域网地址，例如 <code>http://电脑IP:5173</code>。</p>
+        </section>
+        <section class="mobile-card">
+          <div class="mobile-card-head">
+            <span class="mobile-step">3</span>
+            <strong>添加到手机主屏幕</strong>
+          </div>
+          <p>iPhone 用 Safari 分享按钮里的“添加到主屏幕”；Android 用浏览器菜单里的“安装应用”。</p>
+        </section>
+
+        <div class="share-box">
+          <label for="shareUrl">当前页面地址</label>
+          <div class="share-row">
+            <input id="shareUrl" readonly />
+            <button id="copyLinkBtn" class="icon-button secondary" type="button" aria-label="复制链接" title="复制链接">
+              <span data-icon="copy"></span>
+            </button>
+            <button id="nativeShareBtn" class="icon-button secondary" type="button" aria-label="系统分享" title="系统分享">
+              <span data-icon="share"></span>
+            </button>
+          </div>
+          <p id="shareHint" class="share-hint">如果这里显示的是 localhost，手机需要把 localhost 换成电脑的局域网 IP。</p>
+        </div>
+      </div>
+    </section>
+
+    <template id="emptyStateTemplate">
+      <div class="empty-state">
+        <div class="empty-icon"><span data-icon="inbox"></span></div>
+        <h3>还没有匹配记录</h3>
+        <p>调整筛选，或添加一条新的投递记录。</p>
+      </div>
+    </template>
+
+    <script>
+      window.__trackerOpenRecordFallback = function () {
+        var dialog = document.getElementById("recordDialog");
+        var backdrop = document.getElementById("modalBackdrop");
+        if (!dialog) return;
+        dialog.classList.remove("hidden");
+        dialog.classList.add("is-open");
+        dialog.setAttribute("aria-hidden", "false");
+        if (backdrop) backdrop.classList.remove("hidden");
+        document.body.classList.add("modal-open");
+      };
+      window.__trackerCloseRecordFallback = function () {
+        var dialog = document.getElementById("recordDialog");
+        var backdrop = document.getElementById("modalBackdrop");
+        if (!dialog) return;
+        dialog.classList.remove("is-open");
+        dialog.classList.add("hidden");
+        dialog.setAttribute("aria-hidden", "true");
+        if (backdrop) backdrop.classList.add("hidden");
+        document.body.classList.remove("modal-open");
+      };
+    </script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

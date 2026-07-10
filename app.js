@@ -1,0 +1,1377 @@
+const LEGACY_STORAGE_KEY = "campus-application-tracker:v1";
+const ACCOUNTS_KEY = "campus-application-tracker:accounts:v1";
+const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
+const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
+
+const STATUSES = [
+  { id: "待初筛", label: "待初筛" },
+  { id: "待面试", label: "待面试" },
+  { id: "已拒绝", label: "已拒绝" },
+];
+
+const SOURCE_TYPES = ["公众号", "官网", "牛客", "Boss", "实习僧", "自定义"];
+const STALE_DAYS = 7;
+
+const icons = {
+  search:
+    '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>',
+  download:
+    '<svg viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>',
+  upload:
+    '<svg viewBox="0 0 24 24"><path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M5 3h14"></path></svg>',
+  plus:
+    '<svg viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
+  check:
+    '<svg viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"></path></svg>',
+  trash:
+    '<svg viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg>',
+  inbox:
+    '<svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="m5 5-3 7v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3-7Z"></path></svg>',
+  edit:
+    '<svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>',
+  external:
+    '<svg viewBox="0 0 24 24"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>',
+  phone:
+    '<svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"></rect><path d="M11 18h2"></path></svg>',
+  copy:
+    '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"></rect><rect x="4" y="4" width="11" height="11" rx="2"></rect></svg>',
+  share:
+    '<svg viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><path d="M12 16V3"></path><path d="m7 8 5-5 5 5"></path></svg>',
+};
+
+let records = [];
+let accounts = [];
+let activeAccountId = "";
+let activeStatus = "all";
+let activeMetric = "all";
+let activeView = "board";
+let editingId = null;
+let selectedId = null;
+let draggedId = null;
+
+const els = {
+  searchInput: document.querySelector("#searchInput"),
+  accountSelect: document.querySelector("#accountSelect"),
+  addAccountBtn: document.querySelector("#addAccountBtn"),
+  renameAccountBtn: document.querySelector("#renameAccountBtn"),
+  deleteAccountBtn: document.querySelector("#deleteAccountBtn"),
+  statusFilters: document.querySelector("#statusFilters"),
+  sourceFilter: document.querySelector("#sourceFilter"),
+  sortSelect: document.querySelector("#sortSelect"),
+  dueList: document.querySelector("#dueList"),
+  statsGrid: document.querySelector("#statsGrid"),
+  resultMeta: document.querySelector("#resultMeta"),
+  boardView: document.querySelector("#boardView"),
+  tableView: document.querySelector("#tableView"),
+  insightsView: document.querySelector("#insightsView"),
+  addBtn: document.querySelector("#addBtn"),
+  exportBtn: document.querySelector("#exportBtn"),
+  importInput: document.querySelector("#importInput"),
+  exportDialog: document.querySelector("#exportDialog"),
+  closeExportDialogBtn: document.querySelector("#closeExportDialogBtn"),
+  shareExportBtn: document.querySelector("#shareExportBtn"),
+  saveExportBtn: document.querySelector("#saveExportBtn"),
+  copyExportBtn: document.querySelector("#copyExportBtn"),
+  mobileBtn: document.querySelector("#mobileBtn"),
+  mobileDialog: document.querySelector("#mobileDialog"),
+  closeMobileDialogBtn: document.querySelector("#closeMobileDialogBtn"),
+  shareUrl: document.querySelector("#shareUrl"),
+  copyLinkBtn: document.querySelector("#copyLinkBtn"),
+  nativeShareBtn: document.querySelector("#nativeShareBtn"),
+  shareHint: document.querySelector("#shareHint"),
+  recordDialog: document.querySelector("#recordDialog"),
+  recordForm: document.querySelector("#recordForm"),
+  dialogTitle: document.querySelector("#dialogTitle"),
+  closeDialogBtn: document.querySelector("#closeDialogBtn"),
+  cancelDialogBtn: document.querySelector("#cancelDialogBtn"),
+  deleteFromFormBtn: document.querySelector("#deleteFromFormBtn"),
+  formError: document.querySelector("#formError"),
+  sourceDetailField: document.querySelector("#sourceDetailField"),
+  sourceDetailLabel: document.querySelector("#sourceDetailLabel"),
+  drawerBackdrop: document.querySelector("#drawerBackdrop"),
+  detailDrawer: document.querySelector("#detailDrawer"),
+  modalBackdrop: document.querySelector("#modalBackdrop"),
+};
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysISO(dateISO, days) {
+  const date = new Date(`${dateISO}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(startISO, endISO = todayISO()) {
+  const start = new Date(`${startISO}T00:00:00`);
+  const end = new Date(`${endISO}T00:00:00`);
+  return Math.floor((end - start) / 86400000);
+}
+
+function formatDate(dateISO) {
+  if (!dateISO) return "未设置";
+  return dateISO.replaceAll("-", ".");
+}
+
+function escapeHTML(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function uid() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalize(value = "") {
+  return value.toLowerCase().replace(/\s+/g, "").trim();
+}
+
+function normalizeImportance(record = {}) {
+  if (record.importance) return String(record.importance);
+  if (record.priority === "重点") return "5";
+  if (record.priority === "保底") return "2";
+  return "3";
+}
+
+function importanceValue(record = {}) {
+  return Number(normalizeImportance(record)) || 3;
+}
+
+function stars(value) {
+  const count = Number(value || 3);
+  return "★★★★★".slice(0, count);
+}
+
+function percent(value, total) {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
+function exportFilename() {
+  const account = accounts.find((item) => item.id === activeAccountId);
+  const accountName = (account?.name || "默认账号").replace(/[\\/:*?"<>|]/g, "_");
+  return `秋招投递记录-${accountName}-${todayISO()}.json`;
+}
+
+function hydrateIcons(root = document) {
+  root.querySelectorAll("[data-icon]").forEach((node) => {
+    const name = node.getAttribute("data-icon");
+    node.innerHTML = icons[name] || "";
+  });
+}
+
+function recordsKey(accountId = activeAccountId) {
+  return `${ACCOUNT_RECORDS_PREFIX}${accountId}`;
+}
+
+function defaultAccount() {
+  return {
+    id: "default",
+    name: "默认账号",
+    createdAt: todayISO(),
+  };
+}
+
+function loadAccounts() {
+  try {
+    const rawAccounts = localStorage.getItem(ACCOUNTS_KEY);
+    accounts = rawAccounts ? JSON.parse(rawAccounts) : [];
+  } catch {
+    accounts = [];
+  }
+
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    const account = defaultAccount();
+    accounts = [account];
+    activeAccountId = account.id;
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw && !localStorage.getItem(recordsKey(account.id))) {
+      localStorage.setItem(recordsKey(account.id), legacyRaw);
+    }
+    saveAccounts();
+    return;
+  }
+
+  const savedActiveId = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+  activeAccountId = accounts.some((account) => account.id === savedActiveId)
+    ? savedActiveId
+    : accounts[0].id;
+  localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccountId);
+}
+
+function saveAccounts() {
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccountId);
+}
+
+function loadRecords() {
+  try {
+    const raw = localStorage.getItem(recordsKey());
+    records = raw ? JSON.parse(raw) : [];
+  } catch {
+    records = [];
+  }
+}
+
+function saveRecords() {
+  localStorage.setItem(recordsKey(), JSON.stringify(records));
+}
+
+function openDialog(dialog) {
+  dialog.classList.remove("hidden");
+  dialog.classList.add("is-open");
+  dialog.setAttribute("aria-hidden", "false");
+  els.modalBackdrop?.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeDialog(dialog) {
+  dialog.classList.remove("is-open");
+  dialog.classList.add("hidden");
+  dialog.setAttribute("aria-hidden", "true");
+  if (!document.querySelector(".record-dialog.is-open")) {
+    els.modalBackdrop?.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function closeActiveDialog() {
+  const activeDialog = document.querySelector(".record-dialog.is-open");
+  if (activeDialog) {
+    closeDialog(activeDialog);
+    if (activeDialog === els.recordDialog) {
+      editingId = null;
+    }
+    return true;
+  }
+  return false;
+}
+
+function getFilteredRecords() {
+  const query = normalize(els.searchInput.value);
+  const source = els.sourceFilter.value;
+  const weekStart = addDaysISO(todayISO(), -6);
+  const list = records.filter((record) => {
+    const haystack = normalize(
+      [
+        record.company,
+        record.position,
+        record.sourceType,
+        record.sourceDetail,
+        record.note,
+        stars(normalizeImportance(record)),
+      ].join(" "),
+    );
+    const statusMatch = activeStatus === "all" || record.status === activeStatus;
+    const sourceMatch = source === "all" || record.sourceType === source;
+    const queryMatch = !query || haystack.includes(query);
+    const metricMatch =
+      activeMetric === "all" ||
+      (activeMetric === "week" && record.appliedAt >= weekStart) ||
+      (activeMetric === "stale" && isStale(record));
+    return statusMatch && sourceMatch && queryMatch && metricMatch;
+  });
+
+  return list.sort((a, b) => {
+    const importanceDiff = importanceValue(b) - importanceValue(a);
+    if (importanceDiff !== 0) return importanceDiff;
+
+    switch (els.sortSelect.value) {
+      case "staleDesc":
+        return daysBetween(b.updatedAt) - daysBetween(a.updatedAt);
+      case "appliedDesc":
+        return b.appliedAt.localeCompare(a.appliedAt);
+      case "companyAsc":
+        return a.company.localeCompare(b.company, "zh-Hans-CN");
+      default:
+        return b.updatedAt.localeCompare(a.updatedAt);
+    }
+  });
+}
+
+function isDue(record) {
+  return record.nextCheckAt && record.nextCheckAt <= todayISO() && record.status !== "已拒绝";
+}
+
+function isStale(record) {
+  return record.status !== "已拒绝" && daysBetween(record.updatedAt) > STALE_DAYS;
+}
+
+function sourceToHTML(record) {
+  const text = record.sourceDetail || record.sourceType;
+  if (record.sourceType === "自定义" || /^https?:\/\//i.test(text)) {
+    const href = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+    return `<a class="source-link" href="${escapeHTML(href)}" target="_blank" rel="noreferrer">${escapeHTML(text)}</a>`;
+  }
+  return escapeHTML(text);
+}
+
+function renderStatusFilters() {
+  const allCount = records.length;
+  const buttons = [
+    { id: "all", label: "全部记录", count: allCount },
+    ...STATUSES.map((status) => ({
+      ...status,
+      count: records.filter((record) => record.status === status.id).length,
+    })),
+  ];
+
+  els.statusFilters.innerHTML = buttons
+    .map(
+      (item) => `
+        <button class="filter-chip ${activeStatus === item.id ? "active" : ""}" type="button" data-filter-status="${item.id}" ${item.id === "all" ? "" : `data-status="${item.id}"`}>
+          <span class="chip-left">
+            ${item.id === "all" ? '<span data-icon="inbox"></span>' : '<span class="status-dot"></span>'}
+            ${escapeHTML(item.label)}
+          </span>
+          <span class="count-pill">${item.count}</span>
+        </button>
+      `,
+    )
+    .join("");
+
+  hydrateIcons(els.statusFilters);
+}
+
+function renderSourceFilter() {
+  const current = els.sourceFilter.value || "all";
+  els.sourceFilter.innerHTML = [
+    '<option value="all">全部来源</option>',
+    ...SOURCE_TYPES.map((source) => `<option value="${source}">${source}</option>`),
+  ].join("");
+  els.sourceFilter.value = SOURCE_TYPES.includes(current) ? current : "all";
+}
+
+function renderAccountSelect() {
+  els.accountSelect.innerHTML = accounts
+    .map((account) => `<option value="${account.id}">${escapeHTML(account.name)}</option>`)
+    .join("");
+  els.accountSelect.value = activeAccountId;
+  els.deleteAccountBtn.disabled = accounts.length <= 1;
+}
+
+function resetFiltersForAccount() {
+  activeStatus = "all";
+  activeMetric = "all";
+  els.searchInput.value = "";
+  els.sourceFilter.value = "all";
+  closeDrawer();
+}
+
+function switchAccount(accountId) {
+  if (!accounts.some((account) => account.id === accountId)) return;
+  activeAccountId = accountId;
+  saveAccounts();
+  loadRecords();
+  resetFiltersForAccount();
+  render();
+}
+
+function createAccount() {
+  const name = window.prompt("给新账号起个名字", `账号 ${accounts.length + 1}`);
+  if (!name || !name.trim()) return;
+  const normalizedName = name.trim();
+  if (accounts.some((account) => account.name === normalizedName)) {
+    window.alert("这个账号名已经存在。");
+    return;
+  }
+  const account = {
+    id: uid(),
+    name: normalizedName,
+    createdAt: todayISO(),
+  };
+  accounts.push(account);
+  activeAccountId = account.id;
+  records = [];
+  saveAccounts();
+  saveRecords();
+  resetFiltersForAccount();
+  render();
+}
+
+function renameAccount() {
+  const account = accounts.find((item) => item.id === activeAccountId);
+  if (!account) return;
+  const name = window.prompt("修改账号名称", account.name);
+  if (!name || !name.trim()) return;
+  const normalizedName = name.trim();
+  if (accounts.some((item) => item.id !== account.id && item.name === normalizedName)) {
+    window.alert("这个账号名已经存在。");
+    return;
+  }
+  account.name = normalizedName;
+  saveAccounts();
+  renderAccountSelect();
+}
+
+function deleteAccount() {
+  if (accounts.length <= 1) {
+    window.alert("至少保留一个账号。");
+    return;
+  }
+  const account = accounts.find((item) => item.id === activeAccountId);
+  if (!account) return;
+  const ok = window.confirm(`确认删除「${account.name}」吗？这个账号下的投递记录也会删除。`);
+  if (!ok) return;
+  localStorage.removeItem(recordsKey(account.id));
+  accounts = accounts.filter((item) => item.id !== account.id);
+  activeAccountId = accounts[0].id;
+  saveAccounts();
+  loadRecords();
+  resetFiltersForAccount();
+  render();
+}
+
+function renderStats() {
+  const weekStart = addDaysISO(todayISO(), -6);
+  const stats = [
+    { label: "总投递", value: records.length, status: "all", metric: "all" },
+    {
+      label: "待初筛",
+      value: records.filter((record) => record.status === "待初筛").length,
+      status: "待初筛",
+      metric: "all",
+    },
+    {
+      label: "待面试",
+      value: records.filter((record) => record.status === "待面试").length,
+      status: "待面试",
+      metric: "all",
+    },
+    {
+      label: "已拒绝",
+      value: records.filter((record) => record.status === "已拒绝").length,
+      status: "已拒绝",
+      metric: "all",
+    },
+    {
+      label: "本周新增",
+      value: records.filter((record) => record.appliedAt >= weekStart).length,
+      status: "all",
+      metric: "week",
+    },
+    {
+      label: "超过 7 天未更新",
+      value: records.filter(isStale).length,
+      status: "all",
+      metric: "stale",
+    },
+  ];
+
+  els.statsGrid.innerHTML = stats
+    .map(
+      (stat) => `
+        <button class="stat-card ${activeStatus === stat.status && activeMetric === stat.metric ? "active" : ""}" type="button" data-stat-status="${stat.status}" data-stat-metric="${stat.metric}">
+          <span>${escapeHTML(stat.label)}</span>
+          <strong>${stat.value}</strong>
+          <em>查看详情</em>
+        </button>
+      `,
+    )
+    .join("");
+}
+
+function renderDueList() {
+  const due = records
+    .filter(isDue)
+    .sort((a, b) => a.nextCheckAt.localeCompare(b.nextCheckAt))
+    .slice(0, 8);
+
+  if (!due.length) {
+    els.dueList.innerHTML = '<p class="empty-mini">今天没有必须回看的投递。</p>';
+    return;
+  }
+
+  els.dueList.innerHTML = due
+    .map(
+      (record) => `
+        <button class="due-item" type="button" data-open-id="${record.id}">
+          <strong>${escapeHTML(record.company)}</strong>
+          <span>${escapeHTML(record.position || "未填写岗位")} · ${formatDate(record.nextCheckAt)}</span>
+        </button>
+      `,
+    )
+    .join("");
+}
+
+function renderBoard(list) {
+  els.boardView.innerHTML = STATUSES.map((status) => {
+    const columnRecords = list.filter((record) => record.status === status.id);
+    return `
+      <section class="kanban-column" data-drop-status="${status.id}" data-status="${status.id}">
+        <div class="column-head">
+          <div class="column-title">
+            <span class="status-dot"></span>
+            ${status.label}
+          </div>
+          <span class="count-pill">${columnRecords.length}</span>
+        </div>
+        <div class="column-body">
+          ${columnRecords.map(recordCardHTML).join("") || emptyStateHTML()}
+        </div>
+      </section>
+    `;
+  }).join("");
+}
+
+function recordCardHTML(record) {
+  const stale = isStale(record);
+  const due = isDue(record);
+  const importance = normalizeImportance(record);
+  const tags = [
+    `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
+    `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
+    stale ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : "",
+    due ? `<span class="tag warn">今日检查</span>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  return `
+    <article class="record-card ${due ? "overdue" : ""}" draggable="true" data-card-id="${record.id}" data-open-id="${record.id}" data-status="${record.status}" data-importance="${importance}">
+      <div class="card-top">
+        <div>
+          <h3 class="card-title">${escapeHTML(record.company)}</h3>
+          <div class="card-subtitle">${escapeHTML(record.position || "未填写岗位")}</div>
+        </div>
+        <span class="importance-badge">${stars(importance)}</span>
+      </div>
+      <div class="tag-row">${tags}</div>
+      <div class="meta-line">更新于 ${formatDate(record.updatedAt)} · 投递于 ${formatDate(record.appliedAt)}</div>
+      ${record.note ? `<div class="meta-line">${escapeHTML(record.note)}</div>` : ""}
+      <div class="quick-status" aria-label="快速切换状态">
+        ${STATUSES.filter((status) => status.id !== record.status)
+          .map(
+            (status) =>
+              `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderTable(list) {
+  if (!list.length) {
+    els.tableView.innerHTML = emptyStateHTML();
+    return;
+  }
+
+  els.tableView.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>公司</th>
+          <th>岗位</th>
+          <th>重要程度</th>
+          <th>状态</th>
+          <th>来源</th>
+          <th>更新</th>
+          <th>下次检查</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list
+          .map(
+            (record) => `
+              <tr data-status="${record.status}">
+                <td>
+                  <strong class="table-company">${escapeHTML(record.company)}</strong>
+                </td>
+                <td>${escapeHTML(record.position || "未填写")}</td>
+                <td data-importance="${normalizeImportance(record)}"><span class="importance-badge">${stars(normalizeImportance(record))}</span></td>
+                <td><span class="tag status-badge">${escapeHTML(record.status)}</span></td>
+                <td>${sourceToHTML(record)}</td>
+                <td>${formatDate(record.updatedAt)}<div class="meta-line">${daysBetween(record.updatedAt)} 天前</div></td>
+                <td>${formatDate(record.nextCheckAt)}</td>
+                <td>
+                  <div class="row-actions">
+                    <button class="mini-button" type="button" data-open-id="${record.id}">查看</button>
+                    <button class="mini-button" type="button" data-edit-id="${record.id}">编辑</button>
+                  </div>
+                </td>
+              </tr>
+            `,
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderInsights() {
+  const total = records.length;
+  const activeRecords = records.filter((record) => record.status !== "已拒绝");
+  const highPriority = records
+    .filter((record) => importanceValue(record) >= 4 && record.status !== "已拒绝")
+    .sort((a, b) => {
+      const importanceDiff = importanceValue(b) - importanceValue(a);
+      if (importanceDiff !== 0) return importanceDiff;
+      const dueDiff = Number(isDue(b)) - Number(isDue(a));
+      if (dueDiff !== 0) return dueDiff;
+      return daysBetween(b.updatedAt) - daysBetween(a.updatedAt);
+    })
+    .slice(0, 6);
+  const statusRows = STATUSES.map((status) => ({
+    label: status.label,
+    count: records.filter((record) => record.status === status.id).length,
+    status: status.id,
+  }));
+  const sourceRows = SOURCE_TYPES.map((source) => ({
+    label: source,
+    count: records.filter((record) => record.sourceType === source).length,
+  }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const importanceRows = [5, 4, 3, 2, 1].map((level) => ({
+    level,
+    count: records.filter((record) => importanceValue(record) === level).length,
+  }));
+  const dueCount = records.filter(isDue).length;
+  const staleCount = records.filter(isStale).length;
+  const interviewCount = records.filter((record) => record.status === "待面试").length;
+  const rejectedCount = records.filter((record) => record.status === "已拒绝").length;
+  const avgUpdateDays = activeRecords.length
+    ? Math.round(
+        activeRecords.reduce((sum, record) => sum + daysBetween(record.updatedAt), 0) /
+          activeRecords.length,
+      )
+    : 0;
+
+  els.insightsView.innerHTML = `
+    <div class="insight-hero">
+      <article>
+        <span>面试推进率</span>
+        <strong>${percent(interviewCount, total)}%</strong>
+        <em>${interviewCount} / ${total || 0} 条进入待面试</em>
+      </article>
+      <article>
+        <span>拒绝占比</span>
+        <strong>${percent(rejectedCount, total)}%</strong>
+        <em>${rejectedCount} 条已拒绝</em>
+      </article>
+      <article>
+        <span>今日待检查</span>
+        <strong>${dueCount}</strong>
+        <em>${staleCount} 条超过 ${STALE_DAYS} 天未更新</em>
+      </article>
+      <article>
+        <span>平均未更新</span>
+        <strong>${avgUpdateDays}</strong>
+        <em>活跃投递平均天数</em>
+      </article>
+    </div>
+
+    <div class="insight-grid">
+      <section class="insight-panel">
+        <div class="insight-head">
+          <h3>状态漏斗</h3>
+          <span>${total} 条记录</span>
+        </div>
+        <div class="funnel-list">
+          ${statusRows
+            .map(
+              (row) => `
+                <button class="funnel-row" type="button" data-stat-status="${row.status}" data-stat-metric="all" data-status="${row.status}">
+                  <span class="status-dot"></span>
+                  <strong>${row.label}</strong>
+                  <em>${row.count} 条</em>
+                  <i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i>
+                </button>
+              `,
+            )
+            .join("")}
+        </div>
+      </section>
+
+      <section class="insight-panel">
+        <div class="insight-head">
+          <h3>高重要待推进</h3>
+          <span>4-5 星优先看</span>
+        </div>
+        <div class="priority-list">
+          ${
+            highPriority.length
+              ? highPriority
+                  .map(
+                    (record) => `
+                      <button class="priority-row" type="button" data-open-id="${record.id}" data-importance="${normalizeImportance(record)}">
+                        <strong>${escapeHTML(record.company)}</strong>
+                        <span>${escapeHTML(record.position || "未填写岗位")}</span>
+                        <em>${stars(normalizeImportance(record))} · ${daysBetween(record.updatedAt)} 天未更新</em>
+                      </button>
+                    `,
+                  )
+                  .join("")
+              : '<p class="empty-mini">暂时没有 4-5 星的活跃投递。</p>'
+          }
+        </div>
+      </section>
+
+      <section class="insight-panel">
+        <div class="insight-head">
+          <h3>来源分布</h3>
+          <span>判断渠道投入</span>
+        </div>
+        <div class="bar-list">
+          ${
+            sourceRows.length
+              ? sourceRows
+                  .map(
+                    (row) => `
+                      <div class="bar-row">
+                        <span>${escapeHTML(row.label)}</span>
+                        <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
+                        <strong>${row.count}</strong>
+                      </div>
+                    `,
+                  )
+                  .join("")
+              : '<p class="empty-mini">添加记录后会显示来源统计。</p>'
+          }
+        </div>
+      </section>
+
+      <section class="insight-panel">
+        <div class="insight-head">
+          <h3>星级分布</h3>
+          <span>重点池是否健康</span>
+        </div>
+        <div class="star-list">
+          ${importanceRows
+            .map(
+              (row) => `
+                <div class="star-row" data-importance="${row.level}">
+                  <span class="importance-badge">${stars(row.level)}</span>
+                  <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
+                  <strong>${row.count}</strong>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function emptyStateHTML() {
+  return document.querySelector("#emptyStateTemplate").innerHTML;
+}
+
+function render() {
+  const list = getFilteredRecords();
+  const account = accounts.find((item) => item.id === activeAccountId);
+  renderAccountSelect();
+  renderStatusFilters();
+  renderSourceFilter();
+  renderStats();
+  renderDueList();
+  renderBoard(list);
+  renderTable(list);
+  renderInsights();
+  els.resultMeta.textContent = `${account?.name || "当前账号"} · 显示 ${list.length} 条，共 ${records.length} 条`;
+  hydrateIcons(document);
+}
+
+function setView(view) {
+  activeView = view;
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+  els.boardView.classList.toggle("hidden", view !== "board");
+  els.tableView.classList.toggle("hidden", view !== "table");
+  els.insightsView.classList.toggle("hidden", view !== "insights");
+}
+
+function populateSelects() {
+  const statusSelect = els.recordForm.elements.status;
+  const sourceSelect = els.recordForm.elements.sourceType;
+  statusSelect.innerHTML = STATUSES.map(
+    (status) => `<option value="${status.id}">${status.label}</option>`,
+  ).join("");
+  sourceSelect.innerHTML = SOURCE_TYPES.map(
+    (source) => `<option value="${source}">${source}</option>`,
+  ).join("");
+}
+
+function openRecordDialog(record = null) {
+  editingId = record?.id || null;
+  els.formError.textContent = "";
+  els.dialogTitle.textContent = record ? "编辑投递记录" : "添加投递记录";
+  els.deleteFromFormBtn.classList.toggle("hidden", !record);
+
+  const form = els.recordForm;
+  form.reset();
+  form.elements.company.value = record?.company || "";
+  form.elements.position.value = record?.position || "";
+  form.elements.status.value = record?.status || "待初筛";
+  form.elements.sourceType.value = record?.sourceType || "公众号";
+  form.elements.sourceDetail.value = record?.sourceDetail || "";
+  form.elements.appliedAt.value = record?.appliedAt || todayISO();
+  form.elements.updatedAt.value = record?.updatedAt || todayISO();
+  form.elements.nextCheckAt.value = record?.nextCheckAt || addDaysISO(todayISO(), 7);
+  if (form.elements.importance) {
+    form.elements.importance.value = normalizeImportance(record);
+  }
+  form.elements.note.value = record?.note || "";
+  updateSourceLabel();
+  openDialog(els.recordDialog);
+}
+
+function closeRecordDialog() {
+  closeDialog(els.recordDialog);
+  editingId = null;
+}
+
+function updateSourceLabel() {
+  const type = els.recordForm.elements.sourceType.value;
+  const showUrl = type === "自定义";
+  if (els.sourceDetailField) {
+    els.sourceDetailField.classList.toggle("hidden", !showUrl);
+  }
+  els.sourceDetailLabel.textContent = "自定义网址";
+  els.recordForm.elements.sourceDetail.placeholder = "https://example.com/recruit";
+  if (!showUrl) {
+    els.recordForm.elements.sourceDetail.value = "";
+  }
+}
+
+function formToRecord(base = null) {
+  const form = els.recordForm;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const now = todayISO();
+  const note = data.note.trim();
+
+  return {
+    id: base?.id || uid(),
+    company: data.company.trim(),
+    position: data.position.trim(),
+    sourceType: data.sourceType,
+    sourceDetail: data.sourceDetail.trim(),
+    status: data.status,
+    appliedAt: data.appliedAt || now,
+    updatedAt: data.updatedAt || now,
+    nextCheckAt: data.nextCheckAt || "",
+    importance: data.importance || normalizeImportance(base),
+    note,
+    history: base?.history?.length
+      ? [...base.history]
+      : [
+          {
+            id: uid(),
+            status: data.status,
+            updatedAt: data.updatedAt || now,
+            note: note || "创建投递记录",
+          },
+        ],
+  };
+}
+
+function validateRecord(record) {
+  if (!record.company) return "公司名称必须填写。";
+  if (!record.appliedAt || !record.updatedAt) return "投递日期和更新时间必须填写。";
+  if (record.sourceType === "自定义") {
+    if (!record.sourceDetail) return "自定义来源需要填写网址。";
+    try {
+      new URL(/^https?:\/\//i.test(record.sourceDetail) ? record.sourceDetail : `https://${record.sourceDetail}`);
+    } catch {
+      return "来源网址格式不太对。";
+    }
+  }
+  return "";
+}
+
+function hasPossibleDuplicate(candidate) {
+  const company = normalize(candidate.company);
+  const position = normalize(candidate.position);
+  return records.some((record) => {
+    if (record.id === candidate.id) return false;
+    const sameCompany = normalize(record.company) === company;
+    const samePosition = !position || normalize(record.position) === position;
+    return sameCompany && samePosition;
+  });
+}
+
+function saveFromForm(event) {
+  event.preventDefault();
+  const existing = editingId ? records.find((record) => record.id === editingId) : null;
+  const next = formToRecord(existing);
+  const error = validateRecord(next);
+
+  if (error) {
+    els.formError.textContent = error;
+    return;
+  }
+
+  if (!existing && hasPossibleDuplicate(next)) {
+    const ok = window.confirm("可能已经存在相同公司或岗位的记录，仍然继续添加吗？");
+    if (!ok) return;
+  }
+
+  if (existing) {
+    const meaningfulUpdate =
+      existing.status !== next.status ||
+      existing.updatedAt !== next.updatedAt ||
+      (next.note && next.note !== existing.note);
+    if (meaningfulUpdate) {
+      next.history.unshift({
+        id: uid(),
+        status: next.status,
+        updatedAt: next.updatedAt,
+        note: next.note || "更新投递状态",
+      });
+    }
+    records = records.map((record) => (record.id === next.id ? next : record));
+  } else {
+    records.unshift(next);
+  }
+
+  saveRecords();
+  closeRecordDialog();
+  render();
+  if (selectedId === next.id) openDrawer(next.id);
+}
+
+function updateRecordStatus(id, status, note = "快速切换状态") {
+  const record = records.find((item) => item.id === id);
+  if (!record || record.status === status) return;
+  record.status = status;
+  record.updatedAt = todayISO();
+  record.note = note;
+  record.history.unshift({
+    id: uid(),
+    status,
+    updatedAt: record.updatedAt,
+    note,
+  });
+  saveRecords();
+  render();
+  if (selectedId === id) openDrawer(id);
+}
+
+function deleteRecord(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  const ok = window.confirm(`确认删除「${record.company}」这条投递记录吗？`);
+  if (!ok) return;
+  records = records.filter((item) => item.id !== id);
+  saveRecords();
+  closeDrawer();
+  closeRecordDialog();
+  render();
+}
+
+function openDrawer(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  selectedId = id;
+  els.detailDrawer.classList.remove("hidden");
+  els.drawerBackdrop.classList.remove("hidden");
+  els.detailDrawer.setAttribute("aria-hidden", "false");
+  els.detailDrawer.innerHTML = drawerHTML(record);
+  hydrateIcons(els.detailDrawer);
+}
+
+function closeDrawer() {
+  selectedId = null;
+  els.detailDrawer.classList.add("hidden");
+  els.drawerBackdrop.classList.add("hidden");
+  els.detailDrawer.setAttribute("aria-hidden", "true");
+}
+
+function drawerHTML(record) {
+  const importance = normalizeImportance(record);
+  return `
+    <div class="drawer-head" data-status="${record.status}" data-importance="${importance}">
+      <div class="drawer-title-row">
+        <div>
+          <p class="eyebrow">Record Detail</p>
+          <h3>${escapeHTML(record.company)}</h3>
+          <div class="detail-meta">
+            <span class="tag status-badge">${escapeHTML(record.status)}</span>
+            <span class="importance-badge">${stars(importance)}</span>
+            ${isDue(record) ? '<span class="tag warn">今日待检查</span>' : ""}
+            ${isStale(record) ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : ""}
+          </div>
+        </div>
+        <button class="icon-button ghost" type="button" data-close-drawer aria-label="关闭" title="关闭">
+          <span data-icon="x"></span>
+        </button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <section class="detail-section">
+        <h4>基本信息</h4>
+        <div class="detail-grid">
+          <span>岗位</span><strong>${escapeHTML(record.position || "未填写")}</strong>
+          <span>重要程度</span><strong>${stars(importance)} · ${importance} 星</strong>
+          <span>来源</span><strong>${sourceToHTML(record)}</strong>
+          <span>投递日期</span><strong>${formatDate(record.appliedAt)}</strong>
+          <span>更新时间</span><strong>${formatDate(record.updatedAt)}</strong>
+          <span>下次检查</span><strong>${formatDate(record.nextCheckAt)}</strong>
+        </div>
+      </section>
+      <section class="detail-section">
+        <h4>快速操作</h4>
+        <div class="quick-actions">
+          <button class="primary-button" type="button" data-edit-id="${record.id}">
+            <span data-icon="edit"></span>
+            编辑
+          </button>
+          ${STATUSES.filter((status) => status.id !== record.status)
+            .map(
+              (status) =>
+                `<button class="mini-button" type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
+            )
+            .join("")}
+          <button class="danger-button" type="button" data-delete-id="${record.id}">
+            <span data-icon="trash"></span>
+            删除
+          </button>
+        </div>
+      </section>
+      <section class="detail-section">
+        <h4>最近备注</h4>
+        <p class="history-note">${escapeHTML(record.note || "还没有备注。")}</p>
+      </section>
+      <section class="detail-section">
+        <h4>更新历史</h4>
+        <div class="history-list">
+          ${(record.history || [])
+            .map(
+              (item) => `
+                <div class="history-item" data-status="${item.status}">
+                  <div class="history-main">
+                    <div class="history-title">
+                      <span>${escapeHTML(item.status)}</span>
+                      <span class="meta-line">${formatDate(item.updatedAt)}</span>
+                    </div>
+                    <div class="history-note">${escapeHTML(item.note || "更新状态")}</div>
+                  </div>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function exportData() {
+  openDialog(els.exportDialog);
+}
+
+function exportJsonText() {
+  return JSON.stringify(records, null, 2);
+}
+
+function downloadExportFile() {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = exportFilename();
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function closeExportDialog() {
+  closeDialog(els.exportDialog);
+}
+
+function shareExportData() {
+  if (window.AndroidBridge?.shareJson) {
+    window.AndroidBridge.shareJson(exportJsonText(), exportFilename());
+  } else if (navigator.share) {
+    navigator.share({
+      title: "秋招投递记录",
+      text: exportJsonText(),
+    }).catch(() => {});
+  } else {
+    downloadExportFile();
+  }
+  closeExportDialog();
+}
+
+function saveExportData() {
+  if (window.AndroidBridge?.saveJson) {
+    window.AndroidBridge.saveJson(exportJsonText(), exportFilename());
+  } else {
+    downloadExportFile();
+  }
+  closeExportDialog();
+}
+
+function copyExportData() {
+  if (window.AndroidBridge?.copyJson) {
+    window.AndroidBridge.copyJson(exportJsonText());
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(exportJsonText()).catch(copyExportDataFallback);
+  } else {
+    copyExportDataFallback();
+  }
+  closeExportDialog();
+}
+
+function copyExportDataFallback() {
+  const textarea = document.createElement("textarea");
+  textarea.value = exportJsonText();
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      if (!Array.isArray(parsed)) throw new Error("Invalid data");
+      records = parsed.map((record) => ({
+        id: record.id || uid(),
+        company: record.company || "",
+        position: record.position || "",
+        sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "自定义",
+        sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
+        status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
+        appliedAt: record.appliedAt || todayISO(),
+        updatedAt: record.updatedAt || todayISO(),
+        nextCheckAt: record.nextCheckAt || "",
+        importance: normalizeImportance(record),
+        note: record.note || "",
+        history: Array.isArray(record.history) ? record.history : [],
+      }));
+      saveRecords();
+      render();
+      window.alert("导入完成。");
+    } catch {
+      window.alert("导入失败，请确认文件是本应用导出的 JSON。");
+    } finally {
+      els.importInput.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+function openMobileDialog() {
+  const url = window.location.href;
+  els.shareUrl.value = url;
+  els.shareHint.textContent = url.includes("localhost") || url.includes("127.0.0.1")
+    ? "如果手机打不开，把 localhost 或 127.0.0.1 换成电脑的局域网 IP。"
+    : "手机打开这个地址后，可以从浏览器菜单添加到主屏幕。";
+  openDialog(els.mobileDialog);
+}
+
+function closeMobileDialog() {
+  closeDialog(els.mobileDialog);
+}
+
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(els.shareUrl.value);
+    els.shareHint.textContent = "链接已复制。发到手机后，如果地址里是 localhost，记得替换成电脑局域网 IP。";
+  } catch {
+    els.shareUrl.select();
+    document.execCommand("copy");
+    els.shareHint.textContent = "链接已复制。";
+  }
+}
+
+async function nativeShareLink() {
+  if (!navigator.share) {
+    await copyShareLink();
+    return;
+  }
+  try {
+    await navigator.share({
+      title: "秋招投递管理",
+      text: "打开秋招投递管理工具",
+      url: els.shareUrl.value,
+    });
+  } catch {
+    els.shareHint.textContent = "分享已取消。";
+  }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (!["http:", "https:"].includes(window.location.protocol)) return;
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+function configureRuntimeContext() {
+  if (window.location.href.startsWith("file:///android_asset/")) {
+    els.mobileBtn.classList.add("hidden");
+  }
+}
+
+function exposeFallbackActions() {
+  window.__trackerOpenAdd = () => openRecordDialog();
+}
+
+function bindEvents() {
+  els.accountSelect.addEventListener("change", (event) => switchAccount(event.target.value));
+  els.addAccountBtn.addEventListener("click", createAccount);
+  els.renameAccountBtn.addEventListener("click", renameAccount);
+  els.deleteAccountBtn.addEventListener("click", deleteAccount);
+  els.addBtn.addEventListener("click", () => openRecordDialog());
+  els.exportBtn.addEventListener("click", exportData);
+  els.closeExportDialogBtn.addEventListener("click", closeExportDialog);
+  els.shareExportBtn.addEventListener("click", shareExportData);
+  els.saveExportBtn.addEventListener("click", saveExportData);
+  els.copyExportBtn.addEventListener("click", copyExportData);
+  els.importInput.addEventListener("change", (event) => importData(event.target.files[0]));
+  els.mobileBtn.addEventListener("click", openMobileDialog);
+  els.closeMobileDialogBtn.addEventListener("click", closeMobileDialog);
+  els.copyLinkBtn.addEventListener("click", copyShareLink);
+  els.nativeShareBtn.addEventListener("click", nativeShareLink);
+  els.searchInput.addEventListener("input", render);
+  els.sourceFilter.addEventListener("change", render);
+  els.sortSelect.addEventListener("change", render);
+  els.recordForm.addEventListener("submit", saveFromForm);
+  els.recordForm.elements.sourceType.addEventListener("change", updateSourceLabel);
+  els.closeDialogBtn.addEventListener("click", closeRecordDialog);
+  els.cancelDialogBtn.addEventListener("click", closeRecordDialog);
+  els.deleteFromFormBtn.addEventListener("click", () => editingId && deleteRecord(editingId));
+  els.drawerBackdrop.addEventListener("click", closeDrawer);
+  els.modalBackdrop?.addEventListener("click", closeActiveDialog);
+
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.addEventListener("click", () => setView(button.dataset.view));
+  });
+
+  document.addEventListener("click", (event) => {
+    const openTarget = event.target.closest("[data-open-id]");
+    const editTarget = event.target.closest("[data-edit-id]");
+    const deleteTarget = event.target.closest("[data-delete-id]");
+    const quickTarget = event.target.closest("[data-quick-status]");
+    const filterTarget = event.target.closest("[data-filter-status]");
+    const statTarget = event.target.closest("[data-stat-status]");
+    const closeTarget = event.target.closest("[data-close-drawer]");
+
+    if (quickTarget) {
+      event.stopPropagation();
+      updateRecordStatus(
+        quickTarget.dataset.recordId,
+        quickTarget.dataset.quickStatus,
+        "快速切换状态",
+      );
+      return;
+    }
+
+    if (filterTarget) {
+      activeStatus = filterTarget.dataset.filterStatus;
+      activeMetric = "all";
+      render();
+      return;
+    }
+
+    if (statTarget) {
+      activeStatus = statTarget.dataset.statStatus;
+      activeMetric = statTarget.dataset.statMetric;
+      setView("table");
+      render();
+      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (editTarget) {
+      event.stopPropagation();
+      const record = records.find((item) => item.id === editTarget.dataset.editId);
+      if (record) openRecordDialog(record);
+      return;
+    }
+
+    if (deleteTarget) {
+      event.stopPropagation();
+      deleteRecord(deleteTarget.dataset.deleteId);
+      return;
+    }
+
+    if (closeTarget) {
+      closeDrawer();
+      return;
+    }
+
+    if (openTarget) {
+      openDrawer(openTarget.dataset.openId);
+    }
+  });
+
+  document.addEventListener("dragstart", (event) => {
+    const card = event.target.closest("[data-card-id]");
+    if (!card) return;
+    draggedId = card.dataset.cardId;
+    card.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+  });
+
+  document.addEventListener("dragend", (event) => {
+    const card = event.target.closest("[data-card-id]");
+    if (card) card.classList.remove("dragging");
+    draggedId = null;
+  });
+
+  document.addEventListener("dragover", (event) => {
+    const column = event.target.closest("[data-drop-status]");
+    if (!column) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  });
+
+  document.addEventListener("drop", (event) => {
+    const column = event.target.closest("[data-drop-status]");
+    if (!column || !draggedId) return;
+    event.preventDefault();
+    updateRecordStatus(draggedId, column.dataset.dropStatus, "拖拽切换状态");
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && closeActiveDialog()) {
+      return;
+    }
+    if (event.key === "Escape" && !els.detailDrawer.classList.contains("hidden")) {
+      closeDrawer();
+    }
+  });
+}
+
+function init() {
+  if (new URLSearchParams(window.location.search).has("reset")) {
+    try {
+      const rawAccounts = localStorage.getItem(ACCOUNTS_KEY);
+      const storedAccounts = rawAccounts ? JSON.parse(rawAccounts) : [];
+      storedAccounts.forEach((account) => localStorage.removeItem(recordsKey(account.id)));
+    } catch {}
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.removeItem(ACCOUNTS_KEY);
+    localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+  hydrateIcons(document);
+  populateSelects();
+  loadAccounts();
+  loadRecords();
+  configureRuntimeContext();
+  exposeFallbackActions();
+  render();
+  bindEvents();
+  setView(activeView);
+  registerServiceWorker();
+}
+
+init();
