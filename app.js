@@ -2,6 +2,7 @@ const LEGACY_STORAGE_KEY = "campus-application-tracker:v1";
 const ACCOUNTS_KEY = "campus-application-tracker:accounts:v1";
 const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
+const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -11,6 +12,7 @@ const STATUSES = [
 
 const SOURCE_TYPES = ["公众号", "官网", "牛客", "Boss", "实习僧", "自定义"];
 const STALE_DAYS = 7;
+const DEFAULT_OVERDUE_MONTHS = 2;
 
 const icons = {
   search:
@@ -49,16 +51,31 @@ let activeView = "board";
 let editingId = null;
 let selectedId = null;
 let draggedId = null;
+let pendingSwitchAccountId = "";
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
-  accountSelect: document.querySelector("#accountSelect"),
-  addAccountBtn: document.querySelector("#addAccountBtn"),
-  renameAccountBtn: document.querySelector("#renameAccountBtn"),
-  deleteAccountBtn: document.querySelector("#deleteAccountBtn"),
+  accountMenuBtn: document.querySelector("#accountMenuBtn"),
+  accountMenu: document.querySelector("#accountMenu"),
+  closeAccountMenuBtn: document.querySelector("#closeAccountMenuBtn"),
+  activeAccountName: document.querySelector("#activeAccountName"),
+  accountList: document.querySelector("#accountList"),
+  newAccountNameInput: document.querySelector("#newAccountNameInput"),
+  newAccountPasswordInput: document.querySelector("#newAccountPasswordInput"),
+  createAccountBtn: document.querySelector("#createAccountBtn"),
+  renameAccountInput: document.querySelector("#renameAccountInput"),
+  saveAccountNameBtn: document.querySelector("#saveAccountNameBtn"),
+  currentAccountPasswordInput: document.querySelector("#currentAccountPasswordInput"),
+  saveAccountPasswordBtn: document.querySelector("#saveAccountPasswordBtn"),
+  requestDeleteAccountBtn: document.querySelector("#requestDeleteAccountBtn"),
+  deleteAccountConfirm: document.querySelector("#deleteAccountConfirm"),
+  confirmDeleteAccountBtn: document.querySelector("#confirmDeleteAccountBtn"),
+  cancelDeleteAccountBtn: document.querySelector("#cancelDeleteAccountBtn"),
+  accountFeedback: document.querySelector("#accountFeedback"),
   statusFilters: document.querySelector("#statusFilters"),
   sourceFilter: document.querySelector("#sourceFilter"),
   sortSelect: document.querySelector("#sortSelect"),
+  overdueMonthsInput: document.querySelector("#overdueMonthsInput"),
   dueList: document.querySelector("#dueList"),
   statsGrid: document.querySelector("#statsGrid"),
   resultMeta: document.querySelector("#resultMeta"),
@@ -104,10 +121,24 @@ function addDaysISO(dateISO, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function addMonthsISO(dateISO, months) {
+  const date = new Date(`${dateISO}T00:00:00`);
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString().slice(0, 10);
+}
+
 function daysBetween(startISO, endISO = todayISO()) {
   const start = new Date(`${startISO}T00:00:00`);
   const end = new Date(`${endISO}T00:00:00`);
   return Math.floor((end - start) / 86400000);
+}
+
+function monthsBetween(startISO, endISO = todayISO()) {
+  const start = new Date(`${startISO}T00:00:00`);
+  const end = new Date(`${endISO}T00:00:00`);
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+  if (end.getDate() < start.getDate()) months -= 1;
+  return Math.max(0, months);
 }
 
 function formatDate(dateISO) {
@@ -122,6 +153,43 @@ function escapeHTML(value = "") {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function randomSalt() {
+  const bytes = new Uint8Array(16);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    bytes.forEach((_, index) => {
+      bytes[index] = Math.floor(Math.random() * 256);
+    });
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashPassword(password, salt) {
+  const input = `${salt}:${password}`;
+  if (!window.crypto?.subtle) {
+    return btoa(unescape(encodeURIComponent(input)));
+  }
+  const buffer = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function accountHasPassword(account) {
+  return Boolean(account?.passwordSalt && account?.passwordHash);
+}
+
+async function setAccountPassword(account, password) {
+  const salt = randomSalt();
+  account.passwordSalt = salt;
+  account.passwordHash = await hashPassword(password, salt);
+}
+
+async function accountPasswordMatches(account, password) {
+  if (!accountHasPassword(account)) return true;
+  const passwordHash = await hashPassword(password, account.passwordSalt);
+  return passwordHash === account.passwordHash;
 }
 
 function uid() {
@@ -210,6 +278,38 @@ function saveAccounts() {
   localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccountId);
 }
 
+function overdueMonthsThreshold() {
+  const value = Number.parseInt(els.overdueMonthsInput?.value || "", 10);
+  return Number.isFinite(value) && value >= 1 ? value : DEFAULT_OVERDUE_MONTHS;
+}
+
+function loadOverdueMonthsSetting() {
+  const stored = Number.parseInt(localStorage.getItem(OVERDUE_MONTHS_KEY) || "", 10);
+  const value = Number.isFinite(stored) && stored >= 1 ? stored : DEFAULT_OVERDUE_MONTHS;
+  els.overdueMonthsInput.value = String(value);
+}
+
+function saveOverdueMonthsSetting() {
+  const value = overdueMonthsThreshold();
+  els.overdueMonthsInput.value = String(value);
+  localStorage.setItem(OVERDUE_MONTHS_KEY, String(value));
+}
+
+function activeAccount() {
+  return accounts.find((item) => item.id === activeAccountId) || accounts[0] || defaultAccount();
+}
+
+function recordCountForAccount(accountId) {
+  if (accountId === activeAccountId) return records.length;
+  try {
+    const raw = localStorage.getItem(recordsKey(accountId));
+    const storedRecords = raw ? JSON.parse(raw) : [];
+    return Array.isArray(storedRecords) ? storedRecords.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function loadRecords() {
   try {
     const raw = localStorage.getItem(recordsKey());
@@ -274,13 +374,22 @@ function getFilteredRecords() {
     const metricMatch =
       activeMetric === "all" ||
       (activeMetric === "week" && record.appliedAt >= weekStart) ||
-      (activeMetric === "stale" && isStale(record));
+      (activeMetric === "stale" && isStale(record)) ||
+      (activeMetric === "overdue" && isUpdateOverdue(record));
     return statusMatch && sourceMatch && queryMatch && metricMatch;
   });
 
   return list.sort((a, b) => {
+    const overdueDiff = Number(isUpdateOverdue(a)) - Number(isUpdateOverdue(b));
+    if (overdueDiff !== 0) return overdueDiff;
+
     const importanceDiff = importanceValue(b) - importanceValue(a);
     if (importanceDiff !== 0) return importanceDiff;
+
+    if (isUpdateOverdue(a) && isUpdateOverdue(b)) {
+      const overdueAgeDiff = monthsBetween(b.updatedAt) - monthsBetween(a.updatedAt);
+      if (overdueAgeDiff !== 0) return overdueAgeDiff;
+    }
 
     switch (els.sortSelect.value) {
       case "staleDesc":
@@ -301,6 +410,11 @@ function isDue(record) {
 
 function isStale(record) {
   return record.status !== "已拒绝" && daysBetween(record.updatedAt) > STALE_DAYS;
+}
+
+function isUpdateOverdue(record) {
+  if (!record.updatedAt) return false;
+  return record.updatedAt < addMonthsISO(todayISO(), -overdueMonthsThreshold());
 }
 
 function sourceToHTML(record) {
@@ -348,12 +462,62 @@ function renderSourceFilter() {
   els.sourceFilter.value = SOURCE_TYPES.includes(current) ? current : "all";
 }
 
-function renderAccountSelect() {
-  els.accountSelect.innerHTML = accounts
-    .map((account) => `<option value="${account.id}">${escapeHTML(account.name)}</option>`)
+function setAccountFeedback(message = "每个账号的数据本地隔离保存。", tone = "info") {
+  els.accountFeedback.textContent = message;
+  els.accountFeedback.classList.toggle("is-error", tone === "error");
+  els.accountFeedback.classList.toggle("is-success", tone === "success");
+}
+
+function toggleAccountMenu(forceOpen) {
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : els.accountMenu.classList.contains("hidden");
+  els.accountMenu.classList.toggle("hidden", !shouldOpen);
+  els.accountMenuBtn.setAttribute("aria-expanded", String(shouldOpen));
+  if (shouldOpen) {
+    renderAccountPanel();
+    window.setTimeout(() => els.newAccountNameInput.focus({ preventScroll: true }), 80);
+  } else {
+    pendingSwitchAccountId = "";
+    els.deleteAccountConfirm.classList.add("hidden");
+    setAccountFeedback();
+  }
+}
+
+function renderAccountPanel() {
+  const currentAccount = activeAccount();
+  els.activeAccountName.textContent = currentAccount.name;
+  els.renameAccountInput.value = currentAccount.name;
+  els.currentAccountPasswordInput.value = "";
+  els.accountList.innerHTML = accounts
+    .map((account) => {
+      const isActive = account.id === activeAccountId;
+      const count = recordCountForAccount(account.id);
+      const hasPassword = accountHasPassword(account);
+      const isPending = pendingSwitchAccountId === account.id && !isActive;
+      return `
+        <div>
+          <button
+            class="account-switch${isActive ? " is-active" : ""}"
+            type="button"
+            data-switch-account="${account.id}"
+            aria-current="${isActive ? "true" : "false"}"
+          >
+            <span class="account-switch-name">${escapeHTML(account.name)}</span>
+            <span class="account-switch-count">${count} 条</span>
+            <span class="account-switch-lock">${hasPassword ? "已设密码" : "未设密码"}${isActive ? " · 当前" : ""}</span>
+          </button>
+          ${
+            isPending
+              ? `<div class="account-unlock">
+                  <input id="switchAccountPasswordInput" type="password" placeholder="输入账号密码" autocomplete="current-password" data-switch-password="${account.id}" />
+                  <button class="mini-button strong-mini" type="button" data-confirm-switch="${account.id}">进入</button>
+                </div>`
+              : ""
+          }
+        </div>
+      `;
+    })
     .join("");
-  els.accountSelect.value = activeAccountId;
-  els.deleteAccountBtn.disabled = accounts.length <= 1;
+  els.requestDeleteAccountBtn.disabled = accounts.length <= 1;
 }
 
 function resetFiltersForAccount() {
@@ -364,21 +528,52 @@ function resetFiltersForAccount() {
   closeDrawer();
 }
 
-function switchAccount(accountId) {
-  if (!accounts.some((account) => account.id === accountId)) return;
+async function switchAccount(accountId, password = "") {
+  const account = accounts.find((item) => item.id === accountId);
+  if (!account) return;
+  if (account.id === activeAccountId) {
+    setAccountFeedback(accountHasPassword(account) ? "当前账号已受本地密码保护。" : "当前账号还没有设置密码。");
+    return;
+  }
+  if (accountHasPassword(account) && !password) {
+    pendingSwitchAccountId = account.id;
+    renderAccountPanel();
+    window.setTimeout(() => document.querySelector("#switchAccountPasswordInput")?.focus(), 60);
+    setAccountFeedback("输入这个账号的密码后进入。");
+    return;
+  }
+  if (!(await accountPasswordMatches(account, password))) {
+    pendingSwitchAccountId = account.id;
+    renderAccountPanel();
+    window.setTimeout(() => document.querySelector("#switchAccountPasswordInput")?.focus(), 60);
+    setAccountFeedback("密码不对，再试一次。", "error");
+    return;
+  }
   activeAccountId = accountId;
+  pendingSwitchAccountId = "";
   saveAccounts();
   loadRecords();
   resetFiltersForAccount();
   render();
+  toggleAccountMenu(false);
 }
 
-function createAccount() {
-  const name = window.prompt("给新账号起个名字", `账号 ${accounts.length + 1}`);
-  if (!name || !name.trim()) return;
-  const normalizedName = name.trim();
+async function createAccount() {
+  const normalizedName = els.newAccountNameInput.value.trim();
+  const password = els.newAccountPasswordInput.value;
+  if (!normalizedName) {
+    setAccountFeedback("先给新账号起个名字。", "error");
+    els.newAccountNameInput.focus();
+    return;
+  }
+  if (!password) {
+    setAccountFeedback("请给这个账号设置一个密码，简单也可以。", "error");
+    els.newAccountPasswordInput.focus();
+    return;
+  }
   if (accounts.some((account) => account.name === normalizedName)) {
-    window.alert("这个账号名已经存在。");
+    setAccountFeedback("这个账号名已经存在。", "error");
+    els.newAccountNameInput.select();
     return;
   }
   const account = {
@@ -386,46 +581,83 @@ function createAccount() {
     name: normalizedName,
     createdAt: todayISO(),
   };
+  await setAccountPassword(account, password);
   accounts.push(account);
   activeAccountId = account.id;
+  pendingSwitchAccountId = "";
   records = [];
   saveAccounts();
   saveRecords();
   resetFiltersForAccount();
+  els.newAccountNameInput.value = "";
+  els.newAccountPasswordInput.value = "";
+  setAccountFeedback(`已切换到「${account.name}」。`, "success");
   render();
+  toggleAccountMenu(true);
 }
 
 function renameAccount() {
-  const account = accounts.find((item) => item.id === activeAccountId);
+  const account = activeAccount();
   if (!account) return;
-  const name = window.prompt("修改账号名称", account.name);
-  if (!name || !name.trim()) return;
-  const normalizedName = name.trim();
+  const normalizedName = els.renameAccountInput.value.trim();
+  if (!normalizedName) {
+    setAccountFeedback("账号名不能为空。", "error");
+    els.renameAccountInput.focus();
+    return;
+  }
   if (accounts.some((item) => item.id !== account.id && item.name === normalizedName)) {
-    window.alert("这个账号名已经存在。");
+    setAccountFeedback("这个账号名已经存在。", "error");
+    els.renameAccountInput.select();
     return;
   }
   account.name = normalizedName;
   saveAccounts();
-  renderAccountSelect();
+  renderAccountPanel();
+  render();
+  setAccountFeedback("账号名已更新。", "success");
+}
+
+async function updateCurrentAccountPassword() {
+  const account = activeAccount();
+  const password = els.currentAccountPasswordInput.value;
+  if (!account) return;
+  if (!password) {
+    setAccountFeedback("请输入新密码，简单也可以。", "error");
+    els.currentAccountPasswordInput.focus();
+    return;
+  }
+  await setAccountPassword(account, password);
+  saveAccounts();
+  els.currentAccountPasswordInput.value = "";
+  renderAccountPanel();
+  setAccountFeedback("当前账号密码已更新。", "success");
+}
+
+function requestDeleteAccount() {
+  if (accounts.length <= 1) {
+    setAccountFeedback("至少保留一个账号。", "error");
+    return;
+  }
+  els.deleteAccountConfirm.classList.remove("hidden");
+  setAccountFeedback("删除后，这个账号下的投递记录也会一起删除。", "error");
 }
 
 function deleteAccount() {
   if (accounts.length <= 1) {
-    window.alert("至少保留一个账号。");
+    setAccountFeedback("至少保留一个账号。", "error");
     return;
   }
-  const account = accounts.find((item) => item.id === activeAccountId);
+  const account = activeAccount();
   if (!account) return;
-  const ok = window.confirm(`确认删除「${account.name}」吗？这个账号下的投递记录也会删除。`);
-  if (!ok) return;
   localStorage.removeItem(recordsKey(account.id));
   accounts = accounts.filter((item) => item.id !== account.id);
   activeAccountId = accounts[0].id;
   saveAccounts();
   loadRecords();
   resetFiltersForAccount();
+  setAccountFeedback(`已删除「${account.name}」。`, "success");
   render();
+  toggleAccountMenu(true);
 }
 
 function renderStats() {
@@ -461,6 +693,12 @@ function renderStats() {
       value: records.filter(isStale).length,
       status: "all",
       metric: "stale",
+    },
+    {
+      label: `逾期预警`,
+      value: records.filter(isUpdateOverdue).length,
+      status: "all",
+      metric: "overdue",
     },
   ];
 
@@ -523,10 +761,12 @@ function renderBoard(list) {
 function recordCardHTML(record) {
   const stale = isStale(record);
   const due = isDue(record);
+  const updateOverdue = isUpdateOverdue(record);
   const importance = normalizeImportance(record);
   const tags = [
     `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
     `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
+    updateOverdue ? `<span class="tag danger">逾期预警 · ${monthsBetween(record.updatedAt)} 个月未更新</span>` : "",
     stale ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : "",
     due ? `<span class="tag warn">今日检查</span>` : "",
   ]
@@ -534,7 +774,7 @@ function recordCardHTML(record) {
     .join("");
 
   return `
-    <article class="record-card ${due ? "overdue" : ""}" draggable="true" data-card-id="${record.id}" data-open-id="${record.id}" data-status="${record.status}" data-importance="${importance}">
+    <article class="record-card ${due ? "overdue" : ""} ${updateOverdue ? "update-overdue" : ""}" draggable="true" data-card-id="${record.id}" data-open-id="${record.id}" data-status="${record.status}" data-importance="${importance}" data-update-overdue="${updateOverdue ? "true" : "false"}">
       <div class="card-top">
         <div>
           <h3 class="card-title">${escapeHTML(record.company)}</h3>
@@ -580,16 +820,19 @@ function renderTable(list) {
       <tbody>
         ${list
           .map(
-            (record) => `
-              <tr data-status="${record.status}">
+            (record) => {
+              const updateOverdue = isUpdateOverdue(record);
+              return `
+              <tr data-status="${record.status}" data-update-overdue="${updateOverdue ? "true" : "false"}">
                 <td>
                   <strong class="table-company">${escapeHTML(record.company)}</strong>
+                  ${updateOverdue ? `<div class="meta-line danger-text">逾期预警</div>` : ""}
                 </td>
                 <td>${escapeHTML(record.position || "未填写")}</td>
                 <td data-importance="${normalizeImportance(record)}"><span class="importance-badge">${stars(normalizeImportance(record))}</span></td>
                 <td><span class="tag status-badge">${escapeHTML(record.status)}</span></td>
                 <td>${sourceToHTML(record)}</td>
-                <td>${formatDate(record.updatedAt)}<div class="meta-line">${daysBetween(record.updatedAt)} 天前</div></td>
+                <td>${formatDate(record.updatedAt)}<div class="meta-line">${daysBetween(record.updatedAt)} 天前${updateOverdue ? ` · ${monthsBetween(record.updatedAt)} 个月` : ""}</div></td>
                 <td>${formatDate(record.nextCheckAt)}</td>
                 <td>
                   <div class="row-actions">
@@ -598,7 +841,8 @@ function renderTable(list) {
                   </div>
                 </td>
               </tr>
-            `,
+            `;
+            },
           )
           .join("")}
       </tbody>
@@ -769,7 +1013,7 @@ function emptyStateHTML() {
 function render() {
   const list = getFilteredRecords();
   const account = accounts.find((item) => item.id === activeAccountId);
-  renderAccountSelect();
+  renderAccountPanel();
   renderStatusFilters();
   renderSourceFilter();
   renderStats();
@@ -989,8 +1233,9 @@ function closeDrawer() {
 
 function drawerHTML(record) {
   const importance = normalizeImportance(record);
+  const updateOverdue = isUpdateOverdue(record);
   return `
-    <div class="drawer-head" data-status="${record.status}" data-importance="${importance}">
+    <div class="drawer-head" data-status="${record.status}" data-importance="${importance}" data-update-overdue="${updateOverdue ? "true" : "false"}">
       <div class="drawer-title-row">
         <div>
           <p class="eyebrow">Record Detail</p>
@@ -998,6 +1243,7 @@ function drawerHTML(record) {
           <div class="detail-meta">
             <span class="tag status-badge">${escapeHTML(record.status)}</span>
             <span class="importance-badge">${stars(importance)}</span>
+            ${updateOverdue ? `<span class="tag danger">逾期预警 · ${monthsBetween(record.updatedAt)} 个月未更新</span>` : ""}
             ${isDue(record) ? '<span class="tag warn">今日待检查</span>' : ""}
             ${isStale(record) ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : ""}
           </div>
@@ -1224,10 +1470,29 @@ function exposeFallbackActions() {
 }
 
 function bindEvents() {
-  els.accountSelect.addEventListener("change", (event) => switchAccount(event.target.value));
-  els.addAccountBtn.addEventListener("click", createAccount);
-  els.renameAccountBtn.addEventListener("click", renameAccount);
-  els.deleteAccountBtn.addEventListener("click", deleteAccount);
+  els.accountMenuBtn.addEventListener("click", () => toggleAccountMenu());
+  els.closeAccountMenuBtn.addEventListener("click", () => toggleAccountMenu(false));
+  els.createAccountBtn.addEventListener("click", createAccount);
+  els.saveAccountNameBtn.addEventListener("click", renameAccount);
+  els.saveAccountPasswordBtn.addEventListener("click", updateCurrentAccountPassword);
+  els.requestDeleteAccountBtn.addEventListener("click", requestDeleteAccount);
+  els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
+  els.cancelDeleteAccountBtn.addEventListener("click", () => {
+    els.deleteAccountConfirm.classList.add("hidden");
+    setAccountFeedback();
+  });
+  els.newAccountNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") createAccount();
+  });
+  els.newAccountPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") createAccount();
+  });
+  els.renameAccountInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") renameAccount();
+  });
+  els.currentAccountPasswordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") updateCurrentAccountPassword();
+  });
   els.addBtn.addEventListener("click", () => openRecordDialog());
   els.exportBtn.addEventListener("click", exportData);
   els.closeExportDialogBtn.addEventListener("click", closeExportDialog);
@@ -1242,6 +1507,15 @@ function bindEvents() {
   els.searchInput.addEventListener("input", render);
   els.sourceFilter.addEventListener("change", render);
   els.sortSelect.addEventListener("change", render);
+  els.overdueMonthsInput.addEventListener("change", () => {
+    saveOverdueMonthsSetting();
+    render();
+  });
+  els.overdueMonthsInput.addEventListener("input", () => {
+    if (!els.overdueMonthsInput.value) return;
+    saveOverdueMonthsSetting();
+    render();
+  });
   els.recordForm.addEventListener("submit", saveFromForm);
   els.recordForm.elements.sourceType.addEventListener("change", updateSourceLabel);
   els.closeDialogBtn.addEventListener("click", closeRecordDialog);
@@ -1255,6 +1529,9 @@ function bindEvents() {
   });
 
   document.addEventListener("click", (event) => {
+    const accountTarget = event.target.closest("[data-switch-account]");
+    const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
+    const isAccountSurface = event.target.closest("#accountMenu") || event.target.closest("#accountMenuBtn");
     const openTarget = event.target.closest("[data-open-id]");
     const editTarget = event.target.closest("[data-edit-id]");
     const deleteTarget = event.target.closest("[data-delete-id]");
@@ -1262,6 +1539,22 @@ function bindEvents() {
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
+
+    if (confirmSwitchTarget) {
+      const accountId = confirmSwitchTarget.dataset.confirmSwitch;
+      const passwordInput = document.querySelector(`[data-switch-password="${accountId}"]`);
+      switchAccount(accountId, passwordInput?.value || "");
+      return;
+    }
+
+    if (accountTarget) {
+      switchAccount(accountTarget.dataset.switchAccount);
+      return;
+    }
+
+    if (!els.accountMenu.classList.contains("hidden") && !isAccountSurface) {
+      toggleAccountMenu(false);
+    }
 
     if (quickTarget) {
       event.stopPropagation();
@@ -1341,6 +1634,11 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    const switchPasswordTarget = event.target.closest("[data-switch-password]");
+    if (event.key === "Enter" && switchPasswordTarget) {
+      switchAccount(switchPasswordTarget.dataset.switchPassword, switchPasswordTarget.value || "");
+      return;
+    }
     if (event.key === "Escape" && closeActiveDialog()) {
       return;
     }
@@ -1360,10 +1658,12 @@ function init() {
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     localStorage.removeItem(ACCOUNTS_KEY);
     localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+    localStorage.removeItem(OVERDUE_MONTHS_KEY);
     window.history.replaceState(null, "", window.location.pathname);
   }
   hydrateIcons(document);
   populateSelects();
+  loadOverdueMonthsSetting();
   loadAccounts();
   loadRecords();
   configureRuntimeContext();

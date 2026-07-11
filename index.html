@@ -17,26 +17,71 @@
     <div id="app">
       <aside class="sidebar" aria-label="筛选与导航">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">秋</span>
+          <button
+            id="accountMenuBtn"
+            class="brand-mark"
+            type="button"
+            aria-label="打开账号空间"
+            aria-expanded="false"
+            aria-controls="accountMenu"
+            title="账号空间"
+          >
+            秋
+          </button>
           <div>
             <p class="eyebrow">Campus Hunt</p>
             <h1>秋招投递管理</h1>
           </div>
         </div>
 
-        <section class="account-panel" aria-label="账号空间">
-          <div class="section-label">当前账号</div>
-          <div class="account-row">
-            <select id="accountSelect" class="select-input" aria-label="选择账号"></select>
-            <button id="addAccountBtn" class="icon-button secondary compact" type="button" aria-label="新增账号" title="新增账号">
-              <span data-icon="plus"></span>
+        <section id="accountMenu" class="account-menu hidden" aria-label="账号空间">
+          <div class="account-menu-head">
+            <div>
+              <p class="section-label">当前账号</p>
+              <strong id="activeAccountName">默认账号</strong>
+            </div>
+            <button id="closeAccountMenuBtn" class="icon-button secondary compact" type="button" aria-label="收起账号空间" title="收起">
+              <span data-icon="x"></span>
             </button>
           </div>
-          <div class="account-actions">
-            <button id="renameAccountBtn" class="mini-button" type="button">重命名</button>
-            <button id="deleteAccountBtn" class="mini-button danger-mini" type="button">删除账号</button>
+
+          <div id="accountList" class="account-list" aria-label="账号列表"></div>
+
+          <div class="account-editor">
+            <label for="newAccountNameInput">新增账号</label>
+            <div class="account-input-row">
+              <input id="newAccountNameInput" type="text" maxlength="24" placeholder="例如：我的秋招" autocomplete="off" />
+              <button id="createAccountBtn" class="mini-button strong-mini" type="button">添加</button>
+            </div>
+            <input id="newAccountPasswordInput" type="password" placeholder="设置账号密码" autocomplete="new-password" />
           </div>
-          <p class="account-note">每个账号的数据本地隔离保存。</p>
+
+          <div class="account-editor">
+            <label for="renameAccountInput">重命名当前账号</label>
+            <div class="account-input-row">
+              <input id="renameAccountInput" type="text" maxlength="24" autocomplete="off" />
+              <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
+            </div>
+          </div>
+
+          <div class="account-editor">
+            <label for="currentAccountPasswordInput">当前账号密码</label>
+            <div class="account-input-row">
+              <input id="currentAccountPasswordInput" type="password" placeholder="输入新密码" autocomplete="new-password" />
+              <button id="saveAccountPasswordBtn" class="mini-button" type="button">设置</button>
+            </div>
+          </div>
+
+          <div class="account-danger-zone">
+            <button id="requestDeleteAccountBtn" class="mini-button danger-mini" type="button">删除当前账号</button>
+            <div id="deleteAccountConfirm" class="delete-confirm hidden">
+              <span>确认删除当前账号和它的记录？</span>
+              <button id="confirmDeleteAccountBtn" class="mini-button danger-mini" type="button">确认</button>
+              <button id="cancelDeleteAccountBtn" class="mini-button" type="button">取消</button>
+            </div>
+          </div>
+
+          <p id="accountFeedback" class="account-feedback" aria-live="polite">每个账号的数据本地隔离保存。</p>
         </section>
 
         <div class="search-box">
@@ -64,6 +109,15 @@
             <option value="appliedDesc">星级优先 · 最近投递</option>
             <option value="companyAsc">星级优先 · 公司名称</option>
           </select>
+        </section>
+
+        <section class="side-section overdue-setting">
+          <div class="section-label">逾期预警</div>
+          <label class="number-field" for="overdueMonthsInput">
+            <span>超过</span>
+            <input id="overdueMonthsInput" type="number" min="1" max="36" step="1" inputmode="numeric" />
+            <span>个月未更新</span>
+          </label>
         </section>
 
         <section class="side-section check-panel">
