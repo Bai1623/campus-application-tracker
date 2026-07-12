@@ -11,7 +11,58 @@ const STATUSES = [
   { id: "已拒绝", label: "已拒绝" },
 ];
 
-const SOURCE_TYPES = ["公众号", "官网", "牛客", "Boss", "实习僧", "自定义"];
+const SOURCE_TYPES = ["官网", "公众号", "牛客", "Boss", "实习僧", "自定义"];
+const CITY_OPTIONS = [
+  "杭州",
+  "北京",
+  "深圳",
+  "广州",
+  "保定",
+  "长春",
+  "长沙",
+  "常州",
+  "成都",
+  "重庆",
+  "大连",
+  "东莞",
+  "佛山",
+  "福州",
+  "贵阳",
+  "哈尔滨",
+  "合肥",
+  "惠州",
+  "嘉兴",
+  "济南",
+  "金华",
+  "昆明",
+  "临沂",
+  "洛阳",
+  "南昌",
+  "南京",
+  "南宁",
+  "南通",
+  "宁波",
+  "青岛",
+  "泉州",
+  "上海",
+  "绍兴",
+  "沈阳",
+  "石家庄",
+  "苏州",
+  "太原",
+  "台州",
+  "天津",
+  "潍坊",
+  "温州",
+  "武汉",
+  "无锡",
+  "厦门",
+  "西安",
+  "徐州",
+  "烟台",
+  "郑州",
+  "珠海",
+];
 const STALE_DAYS = 7;
 const DEFAULT_OVERDUE_MONTHS = 2;
 
@@ -75,6 +126,7 @@ const els = {
   accountFeedback: document.querySelector("#accountFeedback"),
   statusFilters: document.querySelector("#statusFilters"),
   sourceFilter: document.querySelector("#sourceFilter"),
+  cityFilter: document.querySelector("#cityFilter"),
   sortSelect: document.querySelector("#sortSelect"),
   overdueMonthsInput: document.querySelector("#overdueMonthsInput"),
   dueList: document.querySelector("#dueList"),
@@ -384,12 +436,14 @@ function closeActiveDialog() {
 function getFilteredRecords() {
   const query = normalize(els.searchInput.value);
   const source = els.sourceFilter.value;
+  const city = els.cityFilter.value;
   const weekStart = addDaysISO(todayISO(), -6);
   const list = records.filter((record) => {
     const haystack = normalize(
       [
         record.company,
         record.position,
+        record.city,
         record.sourceType,
         record.sourceDetail,
         record.note,
@@ -398,13 +452,14 @@ function getFilteredRecords() {
     );
     const statusMatch = activeStatus === "all" || record.status === activeStatus;
     const sourceMatch = source === "all" || record.sourceType === source;
+    const cityMatch = city === "all" || record.city === city;
     const queryMatch = !query || haystack.includes(query);
     const metricMatch =
       activeMetric === "all" ||
       (activeMetric === "week" && record.appliedAt >= weekStart) ||
       (activeMetric === "stale" && isStale(record)) ||
       (activeMetric === "overdue" && isUpdateOverdue(record));
-    return statusMatch && sourceMatch && queryMatch && metricMatch;
+    return statusMatch && sourceMatch && cityMatch && queryMatch && metricMatch;
   });
 
   return list.sort((a, b) => {
@@ -488,6 +543,16 @@ function renderSourceFilter() {
     ...SOURCE_TYPES.map((source) => `<option value="${source}">${source}</option>`),
   ].join("");
   els.sourceFilter.value = SOURCE_TYPES.includes(current) ? current : "all";
+}
+
+function renderCityFilter() {
+  const current = els.cityFilter.value || "all";
+  const usedCities = CITY_OPTIONS.filter((city) => records.some((record) => record.city === city));
+  els.cityFilter.innerHTML = [
+    '<option value="all">全部城市</option>',
+    ...usedCities.map((city) => `<option value="${city}">${city}</option>`),
+  ].join("");
+  els.cityFilter.value = usedCities.includes(current) ? current : "all";
 }
 
 function setAccountFeedback(message = "每个账号的数据本地隔离保存。", tone = "info") {
@@ -631,6 +696,7 @@ function resetFiltersForAccount() {
   activeMetric = "all";
   els.searchInput.value = "";
   els.sourceFilter.value = "all";
+  els.cityFilter.value = "all";
   closeDrawer();
 }
 
@@ -933,6 +999,7 @@ function recordCardHTML(record) {
   const importance = normalizeImportance(record);
   const tags = [
     `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
+    `<span class="tag city-tag">${escapeHTML(record.city || "未选城市")}</span>`,
     `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
     updateOverdue ? `<span class="tag danger">逾期预警 · ${monthsBetween(record.updatedAt)} 个月未更新</span>` : "",
     stale ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : "",
@@ -977,6 +1044,7 @@ function renderTable(list) {
         <tr>
           <th>公司</th>
           <th>岗位</th>
+          <th>城市</th>
           <th>重要程度</th>
           <th>状态</th>
           <th>来源</th>
@@ -997,6 +1065,7 @@ function renderTable(list) {
                   ${updateOverdue ? `<div class="meta-line danger-text">逾期预警</div>` : ""}
                 </td>
                 <td>${escapeHTML(record.position || "未填写")}</td>
+                <td>${escapeHTML(record.city || "未选择")}</td>
                 <td data-importance="${normalizeImportance(record)}"><span class="importance-badge">${stars(normalizeImportance(record))}</span></td>
                 <td><span class="tag status-badge">${escapeHTML(record.status)}</span></td>
                 <td>${sourceToHTML(record)}</td>
@@ -1042,6 +1111,13 @@ function renderInsights() {
   }))
     .filter((row) => row.count > 0)
     .sort((a, b) => b.count - a.count);
+  const cityRows = CITY_OPTIONS.map((city) => ({
+    label: city,
+    count: records.filter((record) => record.city === city).length,
+  }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || CITY_OPTIONS.indexOf(a.label) - CITY_OPTIONS.indexOf(b.label))
+    .slice(0, 10);
   const importanceRows = [5, 4, 3, 2, 1].map((level) => ({
     level,
     count: records.filter((record) => importanceValue(record) === level).length,
@@ -1153,6 +1229,30 @@ function renderInsights() {
 
       <section class="insight-panel">
         <div class="insight-head">
+          <h3>城市分布</h3>
+          <span>前 10 个投递城市</span>
+        </div>
+        <div class="bar-list">
+          ${
+            cityRows.length
+              ? cityRows
+                  .map(
+                    (row) => `
+                      <div class="bar-row">
+                        <span>${escapeHTML(row.label)}</span>
+                        <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
+                        <strong>${row.count}</strong>
+                      </div>
+                    `,
+                  )
+                  .join("")
+              : '<p class="empty-mini">添加城市后会显示城市统计。</p>'
+          }
+        </div>
+      </section>
+
+      <section class="insight-panel">
+        <div class="insight-head">
           <h3>星级分布</h3>
           <span>重点池是否健康</span>
         </div>
@@ -1184,6 +1284,7 @@ function render() {
   renderAccountPanel();
   renderStatusFilters();
   renderSourceFilter();
+  renderCityFilter();
   renderStats();
   renderDueList();
   renderBoard(list);
@@ -1206,12 +1307,17 @@ function setView(view) {
 function populateSelects() {
   const statusSelect = els.recordForm.elements.status;
   const sourceSelect = els.recordForm.elements.sourceType;
+  const citySelect = els.recordForm.elements.city;
   statusSelect.innerHTML = STATUSES.map(
     (status) => `<option value="${status.id}">${status.label}</option>`,
   ).join("");
   sourceSelect.innerHTML = SOURCE_TYPES.map(
     (source) => `<option value="${source}">${source}</option>`,
   ).join("");
+  citySelect.innerHTML = [
+    '<option value="">选择城市</option>',
+    ...CITY_OPTIONS.map((city) => `<option value="${city}">${city}</option>`),
+  ].join("");
 }
 
 function openRecordDialog(record = null) {
@@ -1224,8 +1330,9 @@ function openRecordDialog(record = null) {
   form.reset();
   form.elements.company.value = record?.company || "";
   form.elements.position.value = record?.position || "";
+  form.elements.city.value = record?.city || "";
   form.elements.status.value = record?.status || "待初筛";
-  form.elements.sourceType.value = record?.sourceType || "公众号";
+  form.elements.sourceType.value = record?.sourceType || "官网";
   form.elements.sourceDetail.value = record?.sourceDetail || "";
   form.elements.appliedAt.value = record?.appliedAt || todayISO();
   form.elements.updatedAt.value = record?.updatedAt || todayISO();
@@ -1266,6 +1373,7 @@ function formToRecord(base = null) {
     id: base?.id || uid(),
     company: data.company.trim(),
     position: data.position.trim(),
+    city: data.city,
     sourceType: data.sourceType,
     sourceDetail: data.sourceDetail.trim(),
     status: data.status,
@@ -1289,6 +1397,8 @@ function formToRecord(base = null) {
 
 function validateRecord(record) {
   if (!record.company) return "公司名称必须填写。";
+  if (!CITY_OPTIONS.includes(record.city)) return "城市必须选择。";
+  if (!SOURCE_TYPES.includes(record.sourceType)) return "来源类型必须选择。";
   if (!record.appliedAt || !record.updatedAt) return "投递日期和更新时间必须填写。";
   if (record.sourceType === "自定义") {
     if (!record.sourceDetail) return "自定义来源需要填写网址。";
@@ -1441,6 +1551,7 @@ function drawerHTML(record) {
         <h4>基本信息</h4>
         <div class="detail-grid">
           <span>岗位</span><strong>${escapeHTML(record.position || "未填写")}</strong>
+          <span>城市</span><strong>${escapeHTML(record.city || "未选择")}</strong>
           <span>重要程度</span><strong>${stars(importance)} · ${importance} 星</strong>
           <span>来源</span><strong>${sourceToHTML(record)}</strong>
           <span>投递日期</span><strong>${formatDate(record.appliedAt)}</strong>
@@ -1574,7 +1685,8 @@ function importData(file) {
         id: record.id || uid(),
         company: record.company || "",
         position: record.position || "",
-        sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "自定义",
+        city: CITY_OPTIONS.includes(record.city) ? record.city : "",
+        sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "官网",
         sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
         status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
         appliedAt: record.appliedAt || todayISO(),
@@ -1681,6 +1793,7 @@ function bindEvents() {
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", render);
   els.sourceFilter.addEventListener("change", render);
+  els.cityFilter.addEventListener("change", render);
   els.sortSelect.addEventListener("change", render);
   els.overdueMonthsInput.addEventListener("change", () => {
     saveOverdueMonthsSetting();

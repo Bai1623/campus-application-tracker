@@ -995,6 +995,11 @@ label.icon-button:focus-within {
   background: var(--accent-soft);
 }
 
+.tag.city-tag {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
 .tag.danger {
   color: #ffffff;
   background: #b91c1c;
