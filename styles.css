@@ -279,6 +279,83 @@ label.icon-button:focus-within {
   font-weight: 800;
 }
 
+.account-help {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.account-security-list {
+  display: grid;
+  gap: 8px;
+}
+
+.account-security-gate {
+  display: grid;
+  gap: 8px;
+}
+
+.account-security-unlocked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius);
+  color: #bbf7d0;
+  background: rgba(20, 83, 45, 0.26);
+}
+
+.account-security-unlocked strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-security-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.account-security-row > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.account-security-row strong,
+.account-security-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-security-row span {
+  color: #facc15;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.account-security-row input {
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: var(--radius);
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.38);
+}
+
 .account-input-row {
   align-items: stretch;
 }
@@ -474,7 +551,9 @@ label.icon-button:focus-within {
 
 .due-item {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
   width: 100%;
   padding: 9px;
   border: 1px solid transparent;
@@ -492,15 +571,43 @@ label.icon-button:focus-within {
   transform: translateY(-1px);
 }
 
+.due-main {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+
 .due-item strong,
 .card-title,
 .table-company {
   overflow-wrap: anywhere;
 }
 
-.due-item span {
+.due-main span {
   color: #7a4a1f;
   font-size: 12px;
+}
+
+.due-done {
+  align-self: center;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(20, 140, 91, 0.28);
+  border-radius: var(--radius);
+  color: var(--green);
+  background: var(--green-soft);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.due-done:hover {
+  border-color: rgba(20, 140, 91, 0.58);
 }
 
 .empty-mini {

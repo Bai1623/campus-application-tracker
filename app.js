@@ -3,6 +3,7 @@ const ACCOUNTS_KEY = "campus-application-tracker:accounts:v1";
 const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
+const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -52,6 +53,7 @@ let editingId = null;
 let selectedId = null;
 let draggedId = null;
 let pendingSwitchAccountId = "";
+let masterPasswordUnlocked = false;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -67,6 +69,9 @@ const els = {
   saveAccountNameBtn: document.querySelector("#saveAccountNameBtn"),
   currentAccountPasswordInput: document.querySelector("#currentAccountPasswordInput"),
   saveAccountPasswordBtn: document.querySelector("#saveAccountPasswordBtn"),
+  accountPasswordGate: document.querySelector("#accountPasswordGate"),
+  accountRecoveryList: document.querySelector("#accountRecoveryList"),
+  accountSecurityHint: document.querySelector("#accountSecurityHint"),
   requestDeleteAccountBtn: document.querySelector("#requestDeleteAccountBtn"),
   deleteAccountConfirm: document.querySelector("#deleteAccountConfirm"),
   confirmDeleteAccountBtn: document.querySelector("#confirmDeleteAccountBtn"),
@@ -190,6 +195,33 @@ async function accountPasswordMatches(account, password) {
   if (!accountHasPassword(account)) return true;
   const passwordHash = await hashPassword(password, account.passwordSalt);
   return passwordHash === account.passwordHash;
+}
+
+function getMasterPasswordRecord() {
+  try {
+    const raw = localStorage.getItem(MASTER_PASSWORD_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasMasterPassword() {
+  const record = getMasterPasswordRecord();
+  return Boolean(record?.salt && record?.hash);
+}
+
+async function saveMasterPassword(password) {
+  const salt = randomSalt();
+  const hash = await hashPassword(password, salt);
+  localStorage.setItem(MASTER_PASSWORD_KEY, JSON.stringify({ salt, hash, updatedAt: todayISO() }));
+}
+
+async function masterPasswordMatches(password) {
+  const record = getMasterPasswordRecord();
+  if (!record?.salt || !record?.hash) return false;
+  const hash = await hashPassword(password, record.salt);
+  return hash === record.hash;
 }
 
 function uid() {
@@ -477,6 +509,7 @@ function toggleAccountMenu(forceOpen) {
     window.setTimeout(() => els.newAccountNameInput.focus({ preventScroll: true }), 80);
   } else {
     pendingSwitchAccountId = "";
+    masterPasswordUnlocked = false;
     els.deleteAccountConfirm.classList.add("hidden");
     setAccountFeedback();
   }
@@ -517,7 +550,64 @@ function renderAccountPanel() {
       `;
     })
     .join("");
+  renderPasswordManager();
   els.requestDeleteAccountBtn.disabled = accounts.length <= 1;
+}
+
+function renderPasswordManager() {
+  if (!hasMasterPassword()) {
+    els.accountPasswordGate.innerHTML = `
+      <div class="account-security-row">
+        <div>
+          <strong>设置管理密码</strong>
+          <span>首次使用</span>
+        </div>
+        <input type="password" placeholder="输入管理密码" autocomplete="new-password" data-master-password-input="set" />
+        <button class="mini-button strong-mini" type="button" data-set-master-password>设置</button>
+      </div>
+    `;
+    els.accountRecoveryList.innerHTML = "";
+    els.accountSecurityHint.textContent = "设置后，必须输入管理密码才能重置任意账号密码。";
+    return;
+  }
+
+  if (!masterPasswordUnlocked) {
+    els.accountPasswordGate.innerHTML = `
+      <div class="account-security-row">
+        <div>
+          <strong>输入管理密码</strong>
+          <span>已锁定</span>
+        </div>
+        <input type="password" placeholder="管理密码" autocomplete="current-password" data-master-password-input="unlock" />
+        <button class="mini-button strong-mini" type="button" data-unlock-master-password>进入</button>
+      </div>
+    `;
+    els.accountRecoveryList.innerHTML = "";
+    els.accountSecurityHint.textContent = "旧密码不能查看；验证管理密码后才能重置账号密码。";
+    return;
+  }
+
+  els.accountPasswordGate.innerHTML = `
+    <div class="account-security-unlocked">
+      <strong>密码管理已解锁</strong>
+      <button class="mini-button" type="button" data-lock-master-password>锁定</button>
+    </div>
+  `;
+  els.accountRecoveryList.innerHTML = accounts
+    .map(
+      (account) => `
+        <div class="account-security-row">
+          <div>
+            <strong>${escapeHTML(account.name)}</strong>
+            <span>${accountHasPassword(account) ? "已设密码" : "未设密码"}</span>
+          </div>
+          <input type="password" placeholder="输入新密码" autocomplete="new-password" data-reset-password-input="${account.id}" />
+          <button class="mini-button" type="button" data-reset-password-account="${account.id}">重置</button>
+        </div>
+      `,
+    )
+    .join("");
+  els.accountSecurityHint.textContent = "旧密码不会显示；这里只能把账号改成新密码。";
 }
 
 function resetFiltersForAccount() {
@@ -633,6 +723,63 @@ async function updateCurrentAccountPassword() {
   setAccountFeedback("当前账号密码已更新。", "success");
 }
 
+async function resetAccountPassword(accountId, password) {
+  if (!masterPasswordUnlocked) {
+    setAccountFeedback("请先输入管理密码进入密码管理。", "error");
+    document.querySelector('[data-master-password-input="unlock"]')?.focus();
+    return;
+  }
+  const account = accounts.find((item) => item.id === accountId);
+  if (!account) return;
+  if (!password) {
+    setAccountFeedback("请输入新密码后再重置。", "error");
+    document.querySelector(`[data-reset-password-input="${accountId}"]`)?.focus();
+    return;
+  }
+  await setAccountPassword(account, password);
+  saveAccounts();
+  renderAccountPanel();
+  setAccountFeedback(`「${account.name}」的密码已重置。`, "success");
+}
+
+async function setMasterPasswordFromInput() {
+  const input = document.querySelector('[data-master-password-input="set"]');
+  const password = input?.value || "";
+  if (!password) {
+    setAccountFeedback("请输入管理密码，简单也可以。", "error");
+    input?.focus();
+    return;
+  }
+  await saveMasterPassword(password);
+  masterPasswordUnlocked = true;
+  renderAccountPanel();
+  setAccountFeedback("管理密码已设置，密码管理已解锁。", "success");
+}
+
+async function unlockMasterPasswordFromInput() {
+  const input = document.querySelector('[data-master-password-input="unlock"]');
+  const password = input?.value || "";
+  if (!password) {
+    setAccountFeedback("请输入管理密码。", "error");
+    input?.focus();
+    return;
+  }
+  if (!(await masterPasswordMatches(password))) {
+    setAccountFeedback("管理密码不对。", "error");
+    input.select();
+    return;
+  }
+  masterPasswordUnlocked = true;
+  renderAccountPanel();
+  setAccountFeedback("密码管理已解锁。", "success");
+}
+
+function lockMasterPassword() {
+  masterPasswordUnlocked = false;
+  renderAccountPanel();
+  setAccountFeedback("密码管理已锁定。");
+}
+
 function requestDeleteAccount() {
   if (accounts.length <= 1) {
     setAccountFeedback("至少保留一个账号。", "error");
@@ -729,10 +876,13 @@ function renderDueList() {
   els.dueList.innerHTML = due
     .map(
       (record) => `
-        <button class="due-item" type="button" data-open-id="${record.id}">
-          <strong>${escapeHTML(record.company)}</strong>
-          <span>${escapeHTML(record.position || "未填写岗位")} · ${formatDate(record.nextCheckAt)}</span>
-        </button>
+        <div class="due-item">
+          <button class="due-main" type="button" data-open-id="${record.id}">
+            <strong>${escapeHTML(record.company)}</strong>
+            <span>${escapeHTML(record.position || "未填写岗位")} · ${formatDate(record.nextCheckAt)}</span>
+          </button>
+          <button class="due-done" type="button" data-due-checked-id="${record.id}">已检查</button>
+        </div>
       `,
     )
     .join("");
@@ -1201,6 +1351,21 @@ function updateRecordStatus(id, status, note = "快速切换状态") {
   if (selectedId === id) openDrawer(id);
 }
 
+function markDueChecked(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  record.nextCheckAt = addDaysISO(todayISO(), 7);
+  record.history.unshift({
+    id: uid(),
+    status: record.status,
+    updatedAt: todayISO(),
+    note: "已检查，下次检查顺延 7 天",
+  });
+  saveRecords();
+  render();
+  if (selectedId === id) openDrawer(id);
+}
+
 function deleteRecord(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
@@ -1531,10 +1696,15 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
+    const resetPasswordTarget = event.target.closest("[data-reset-password-account]");
+    const setMasterPasswordTarget = event.target.closest("[data-set-master-password]");
+    const unlockMasterPasswordTarget = event.target.closest("[data-unlock-master-password]");
+    const lockMasterPasswordTarget = event.target.closest("[data-lock-master-password]");
     const isAccountSurface = event.target.closest("#accountMenu") || event.target.closest("#accountMenuBtn");
     const openTarget = event.target.closest("[data-open-id]");
     const editTarget = event.target.closest("[data-edit-id]");
     const deleteTarget = event.target.closest("[data-delete-id]");
+    const dueCheckedTarget = event.target.closest("[data-due-checked-id]");
     const quickTarget = event.target.closest("[data-quick-status]");
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
@@ -1552,8 +1722,36 @@ function bindEvents() {
       return;
     }
 
+    if (resetPasswordTarget) {
+      const accountId = resetPasswordTarget.dataset.resetPasswordAccount;
+      const passwordInput = document.querySelector(`[data-reset-password-input="${accountId}"]`);
+      resetAccountPassword(accountId, passwordInput?.value || "");
+      return;
+    }
+
+    if (setMasterPasswordTarget) {
+      setMasterPasswordFromInput();
+      return;
+    }
+
+    if (unlockMasterPasswordTarget) {
+      unlockMasterPasswordFromInput();
+      return;
+    }
+
+    if (lockMasterPasswordTarget) {
+      lockMasterPassword();
+      return;
+    }
+
     if (!els.accountMenu.classList.contains("hidden") && !isAccountSurface) {
       toggleAccountMenu(false);
+    }
+
+    if (dueCheckedTarget) {
+      event.stopPropagation();
+      markDueChecked(dueCheckedTarget.dataset.dueCheckedId);
+      return;
     }
 
     if (quickTarget) {
@@ -1635,6 +1833,20 @@ function bindEvents() {
 
   document.addEventListener("keydown", (event) => {
     const switchPasswordTarget = event.target.closest("[data-switch-password]");
+    const resetPasswordInput = event.target.closest("[data-reset-password-input]");
+    const masterPasswordInput = event.target.closest("[data-master-password-input]");
+    if (event.key === "Enter" && masterPasswordInput) {
+      if (masterPasswordInput.dataset.masterPasswordInput === "set") {
+        setMasterPasswordFromInput();
+      } else {
+        unlockMasterPasswordFromInput();
+      }
+      return;
+    }
+    if (event.key === "Enter" && resetPasswordInput) {
+      resetAccountPassword(resetPasswordInput.dataset.resetPasswordInput, resetPasswordInput.value || "");
+      return;
+    }
     if (event.key === "Enter" && switchPasswordTarget) {
       switchAccount(switchPasswordTarget.dataset.switchPassword, switchPasswordTarget.value || "");
       return;
@@ -1659,6 +1871,7 @@ function init() {
     localStorage.removeItem(ACCOUNTS_KEY);
     localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
     localStorage.removeItem(OVERDUE_MONTHS_KEY);
+    localStorage.removeItem(MASTER_PASSWORD_KEY);
     window.history.replaceState(null, "", window.location.pathname);
   }
   hydrateIcons(document);
