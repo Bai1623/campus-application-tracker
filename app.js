@@ -65,10 +65,6 @@ const els = {
   newAccountNameInput: document.querySelector("#newAccountNameInput"),
   newAccountPasswordInput: document.querySelector("#newAccountPasswordInput"),
   createAccountBtn: document.querySelector("#createAccountBtn"),
-  renameAccountInput: document.querySelector("#renameAccountInput"),
-  saveAccountNameBtn: document.querySelector("#saveAccountNameBtn"),
-  currentAccountPasswordInput: document.querySelector("#currentAccountPasswordInput"),
-  saveAccountPasswordBtn: document.querySelector("#saveAccountPasswordBtn"),
   accountPasswordGate: document.querySelector("#accountPasswordGate"),
   accountRecoveryList: document.querySelector("#accountRecoveryList"),
   accountSecurityHint: document.querySelector("#accountSecurityHint"),
@@ -518,8 +514,6 @@ function toggleAccountMenu(forceOpen) {
 function renderAccountPanel() {
   const currentAccount = activeAccount();
   els.activeAccountName.textContent = currentAccount.name;
-  els.renameAccountInput.value = currentAccount.name;
-  els.currentAccountPasswordInput.value = "";
   els.accountList.innerHTML = accounts
     .map((account) => {
       const isActive = account.id === activeAccountId;
@@ -527,17 +521,39 @@ function renderAccountPanel() {
       const hasPassword = accountHasPassword(account);
       const isPending = pendingSwitchAccountId === account.id && !isActive;
       return `
-        <div>
-          <button
-            class="account-switch${isActive ? " is-active" : ""}"
-            type="button"
-            data-switch-account="${account.id}"
-            aria-current="${isActive ? "true" : "false"}"
-          >
-            <span class="account-switch-name">${escapeHTML(account.name)}</span>
-            <span class="account-switch-count">${count} 条</span>
-            <span class="account-switch-lock">${hasPassword ? "已设密码" : "未设密码"}${isActive ? " · 当前" : ""}</span>
-          </button>
+        <div class="account-list-item${isActive ? " is-current" : ""}">
+          <div>
+            <button
+              class="account-switch${isActive ? " is-active" : ""}"
+              type="button"
+              data-switch-account="${account.id}"
+              aria-current="${isActive ? "true" : "false"}"
+            >
+              <span class="account-switch-name">${escapeHTML(account.name)}</span>
+              <span class="account-switch-count">${count} 条</span>
+              <span class="account-switch-lock">${hasPassword ? "已设密码" : "未设密码"}${isActive ? " · 当前" : ""}</span>
+            </button>
+          </div>
+          ${
+            isActive
+              ? `<div class="account-current-tools" aria-label="当前账号操作">
+                  <div class="account-inline-editor">
+                    <label for="renameAccountInput">重命名当前账号</label>
+                    <div class="account-input-row">
+                      <input id="renameAccountInput" type="text" maxlength="24" value="${escapeHTML(account.name)}" autocomplete="off" />
+                      <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
+                    </div>
+                  </div>
+                  <div class="account-inline-editor">
+                    <label for="currentAccountPasswordInput">${hasPassword ? "更改当前密码" : "账号设置密码"}</label>
+                    <div class="account-input-row">
+                      <input id="currentAccountPasswordInput" type="password" placeholder="${hasPassword ? "输入新密码" : "设置账号密码"}" autocomplete="new-password" />
+                      <button id="saveAccountPasswordBtn" class="mini-button" type="button">${hasPassword ? "更改" : "设置"}</button>
+                    </div>
+                  </div>
+                </div>`
+              : ""
+          }
           ${
             isPending
               ? `<div class="account-unlock">
@@ -689,15 +705,16 @@ async function createAccount() {
 function renameAccount() {
   const account = activeAccount();
   if (!account) return;
-  const normalizedName = els.renameAccountInput.value.trim();
+  const input = document.querySelector("#renameAccountInput");
+  const normalizedName = input?.value.trim() || "";
   if (!normalizedName) {
     setAccountFeedback("账号名不能为空。", "error");
-    els.renameAccountInput.focus();
+    input?.focus();
     return;
   }
   if (accounts.some((item) => item.id !== account.id && item.name === normalizedName)) {
     setAccountFeedback("这个账号名已经存在。", "error");
-    els.renameAccountInput.select();
+    input?.select();
     return;
   }
   account.name = normalizedName;
@@ -709,16 +726,17 @@ function renameAccount() {
 
 async function updateCurrentAccountPassword() {
   const account = activeAccount();
-  const password = els.currentAccountPasswordInput.value;
+  const input = document.querySelector("#currentAccountPasswordInput");
+  const password = input?.value || "";
   if (!account) return;
   if (!password) {
     setAccountFeedback("请输入新密码，简单也可以。", "error");
-    els.currentAccountPasswordInput.focus();
+    input?.focus();
     return;
   }
   await setAccountPassword(account, password);
   saveAccounts();
-  els.currentAccountPasswordInput.value = "";
+  input.value = "";
   renderAccountPanel();
   setAccountFeedback("当前账号密码已更新。", "success");
 }
@@ -1638,8 +1656,6 @@ function bindEvents() {
   els.accountMenuBtn.addEventListener("click", () => toggleAccountMenu());
   els.closeAccountMenuBtn.addEventListener("click", () => toggleAccountMenu(false));
   els.createAccountBtn.addEventListener("click", createAccount);
-  els.saveAccountNameBtn.addEventListener("click", renameAccount);
-  els.saveAccountPasswordBtn.addEventListener("click", updateCurrentAccountPassword);
   els.requestDeleteAccountBtn.addEventListener("click", requestDeleteAccount);
   els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
   els.cancelDeleteAccountBtn.addEventListener("click", () => {
@@ -1651,12 +1667,6 @@ function bindEvents() {
   });
   els.newAccountPasswordInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") createAccount();
-  });
-  els.renameAccountInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") renameAccount();
-  });
-  els.currentAccountPasswordInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") updateCurrentAccountPassword();
   });
   els.addBtn.addEventListener("click", () => openRecordDialog());
   els.exportBtn.addEventListener("click", exportData);
@@ -1696,6 +1706,8 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
+    const saveAccountNameTarget = event.target.closest("#saveAccountNameBtn");
+    const saveAccountPasswordTarget = event.target.closest("#saveAccountPasswordBtn");
     const resetPasswordTarget = event.target.closest("[data-reset-password-account]");
     const setMasterPasswordTarget = event.target.closest("[data-set-master-password]");
     const unlockMasterPasswordTarget = event.target.closest("[data-unlock-master-password]");
@@ -1714,6 +1726,16 @@ function bindEvents() {
       const accountId = confirmSwitchTarget.dataset.confirmSwitch;
       const passwordInput = document.querySelector(`[data-switch-password="${accountId}"]`);
       switchAccount(accountId, passwordInput?.value || "");
+      return;
+    }
+
+    if (saveAccountNameTarget) {
+      renameAccount();
+      return;
+    }
+
+    if (saveAccountPasswordTarget) {
+      updateCurrentAccountPassword();
       return;
     }
 
@@ -1833,8 +1855,18 @@ function bindEvents() {
 
   document.addEventListener("keydown", (event) => {
     const switchPasswordTarget = event.target.closest("[data-switch-password]");
+    const renameAccountInput = event.target.closest("#renameAccountInput");
+    const currentAccountPasswordInput = event.target.closest("#currentAccountPasswordInput");
     const resetPasswordInput = event.target.closest("[data-reset-password-input]");
     const masterPasswordInput = event.target.closest("[data-master-password-input]");
+    if (event.key === "Enter" && renameAccountInput) {
+      renameAccount();
+      return;
+    }
+    if (event.key === "Enter" && currentAccountPasswordInput) {
+      updateCurrentAccountPassword();
+      return;
+    }
     if (event.key === "Enter" && masterPasswordInput) {
       if (masterPasswordInput.dataset.masterPasswordInput === "set") {
         setMasterPasswordFromInput();
