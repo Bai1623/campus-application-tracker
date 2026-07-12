@@ -76,7 +76,9 @@
         </section>
 
         <div class="search-box">
-          <span data-icon="search"></span>
+          <button id="searchButton" class="search-button" type="button" aria-label="搜索并跳转到列表">
+            <span data-icon="search"></span>
+          </button>
           <input id="searchInput" type="search" placeholder="搜索公司、岗位、城市、来源" autocomplete="off" />
         </div>
 
@@ -97,12 +99,6 @@
           <select id="cityFilter" class="select-input">
             <option value="all">全部城市</option>
           </select>
-        </section>
-
-        <section class="side-section">
-          <div class="section-label">城市偏好</div>
-          <select id="cityPreferenceSelect" class="select-input multi-select" multiple size="4"></select>
-          <p class="side-hint">最多 4 个，越靠前权重越高。</p>
         </section>
 
         <section class="side-section">

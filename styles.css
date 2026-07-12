@@ -484,6 +484,24 @@ label.icon-button:focus-within {
   background: var(--surface);
 }
 
+.search-button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-left: -3px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.search-button:hover,
+.search-button:focus-visible {
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+}
+
 .search-box input {
   width: 100%;
   min-width: 0;
@@ -871,6 +889,11 @@ label.icon-button:focus-within {
 .result-meta {
   color: var(--muted);
   font-size: 13px;
+}
+
+.result-meta.is-warning {
+  color: var(--red);
+  font-weight: 800;
 }
 
 .board-view {

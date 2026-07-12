@@ -4,7 +4,6 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const CITY_PREFERENCES_KEY = "campus-application-tracker:city-preferences:v1";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -67,8 +66,6 @@ const CITY_OPTIONS = [
 const STALE_DAYS = 7;
 const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
-const DEFAULT_CITY_PREFERENCES = ["杭州", "深圳", "北京", "广州"];
-const MAX_CITY_PREFERENCES = 4;
 
 const icons = {
   search:
@@ -109,10 +106,10 @@ let selectedId = null;
 let draggedId = null;
 let pendingSwitchAccountId = "";
 let masterPasswordUnlocked = false;
-let searchJumpTimer = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
+  searchButton: document.querySelector("#searchButton"),
   accountMenuBtn: document.querySelector("#accountMenuBtn"),
   accountMenu: document.querySelector("#accountMenu"),
   closeAccountMenuBtn: document.querySelector("#closeAccountMenuBtn"),
@@ -132,7 +129,6 @@ const els = {
   statusFilters: document.querySelector("#statusFilters"),
   sourceFilter: document.querySelector("#sourceFilter"),
   cityFilter: document.querySelector("#cityFilter"),
-  cityPreferenceSelect: document.querySelector("#cityPreferenceSelect"),
   sortSelect: document.querySelector("#sortSelect"),
   overdueMonthsInput: document.querySelector("#overdueMonthsInput"),
   dueList: document.querySelector("#dueList"),
@@ -296,34 +292,6 @@ function recordCities(record = {}) {
 function cityText(record = {}) {
   const cities = recordCities(record);
   return cities.length ? cities.join(" / ") : "未选择";
-}
-
-function loadCityPreferences() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CITY_PREFERENCES_KEY) || "[]");
-    const valid = Array.isArray(parsed)
-      ? parsed.filter((city, index, array) => CITY_OPTIONS.includes(city) && array.indexOf(city) === index)
-      : [];
-    return (valid.length ? valid : DEFAULT_CITY_PREFERENCES).slice(0, MAX_CITY_PREFERENCES);
-  } catch {
-    return DEFAULT_CITY_PREFERENCES;
-  }
-}
-
-function saveCityPreferences(cities) {
-  const valid = cities
-    .filter((city, index, array) => CITY_OPTIONS.includes(city) && array.indexOf(city) === index)
-    .slice(0, MAX_CITY_PREFERENCES);
-  localStorage.setItem(CITY_PREFERENCES_KEY, JSON.stringify(valid));
-  return valid;
-}
-
-function cityPreferenceScore(record = {}) {
-  const cities = recordCities(record);
-  const preferences = loadCityPreferences();
-  const firstMatchIndex = preferences.findIndex((city) => cities.includes(city));
-  if (firstMatchIndex < 0) return 0;
-  return preferences.length - firstMatchIndex;
 }
 
 function normalizeImportance(record = {}) {
@@ -512,9 +480,6 @@ function getFilteredRecords() {
     const overdueDiff = Number(isUpdateOverdue(a)) - Number(isUpdateOverdue(b));
     if (overdueDiff !== 0) return overdueDiff;
 
-    const cityPreferenceDiff = cityPreferenceScore(b) - cityPreferenceScore(a);
-    if (cityPreferenceDiff !== 0) return cityPreferenceDiff;
-
     const importanceDiff = importanceValue(b) - importanceValue(a);
     if (importanceDiff !== 0) return importanceDiff;
 
@@ -601,13 +566,6 @@ function renderCityFilter() {
     ...CITY_OPTIONS.map((city) => `<option value="${city}">${city}</option>`),
   ].join("");
   els.cityFilter.value = CITY_OPTIONS.includes(current) ? current : "all";
-}
-
-function renderCityPreferenceSelect() {
-  const preferences = loadCityPreferences();
-  els.cityPreferenceSelect.innerHTML = CITY_OPTIONS.map(
-    (city) => `<option value="${city}" ${preferences.includes(city) ? "selected" : ""}>${city}</option>`,
-  ).join("");
 }
 
 function setAccountFeedback(message = "每个账号的数据本地隔离保存。", tone = "info") {
@@ -1336,11 +1294,11 @@ function emptyStateHTML() {
 function render() {
   const list = getFilteredRecords();
   const account = accounts.find((item) => item.id === activeAccountId);
+  els.resultMeta.classList.remove("is-warning");
   renderAccountPanel();
   renderStatusFilters();
   renderSourceFilter();
   renderCityFilter();
-  renderCityPreferenceSelect();
   renderStats();
   renderDueList();
   renderBoard(list);
@@ -1352,12 +1310,21 @@ function render() {
 
 function handleSearchInput() {
   render();
-  window.clearTimeout(searchJumpTimer);
-  if (!normalize(els.searchInput.value)) return;
-  searchJumpTimer = window.setTimeout(() => {
-    setView("table");
-    els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 160);
+}
+
+function submitSearch() {
+  const query = normalize(els.searchInput.value);
+  const list = getFilteredRecords();
+  render();
+  els.resultMeta.classList.remove("is-warning");
+  if (!query) return;
+  if (!list.length) {
+    els.resultMeta.textContent = "当前暂无该信息，可以换个关键词试试。";
+    els.resultMeta.classList.add("is-warning");
+    return;
+  }
+  setView("table");
+  els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setView(view) {
@@ -1444,23 +1411,6 @@ function enforceCitySelectionLimit(event) {
     });
   }
   els.formError.textContent = `城市最多选择 ${MAX_RECORD_CITIES} 个。`;
-}
-
-function updateCityPreferencesFromSelect(event) {
-  const selected = Array.from(els.cityPreferenceSelect.selectedOptions).map((option) => option.value);
-  if (selected.length > MAX_CITY_PREFERENCES) {
-    const changedOption = event.target;
-    if (changedOption?.selected) {
-      changedOption.selected = false;
-    }
-  }
-  const saved = saveCityPreferences(
-    Array.from(els.cityPreferenceSelect.selectedOptions).map((option) => option.value),
-  );
-  Array.from(els.cityPreferenceSelect.options).forEach((option) => {
-    option.selected = saved.includes(option.value);
-  });
-  render();
 }
 
 function formToRecord(base = null) {
@@ -1895,9 +1845,14 @@ function bindEvents() {
   els.copyLinkBtn.addEventListener("click", copyShareLink);
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", handleSearchInput);
+  els.searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    submitSearch();
+  });
+  els.searchButton.addEventListener("click", submitSearch);
   els.sourceFilter.addEventListener("change", render);
   els.cityFilter.addEventListener("change", render);
-  els.cityPreferenceSelect.addEventListener("change", updateCityPreferencesFromSelect);
   els.sortSelect.addEventListener("change", render);
   els.overdueMonthsInput.addEventListener("change", () => {
     saveOverdueMonthsSetting();
@@ -2122,7 +2077,6 @@ function init() {
     localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
     localStorage.removeItem(OVERDUE_MONTHS_KEY);
     localStorage.removeItem(MASTER_PASSWORD_KEY);
-    localStorage.removeItem(CITY_PREFERENCES_KEY);
     window.history.replaceState(null, "", window.location.pathname);
   }
   hydrateIcons(document);
