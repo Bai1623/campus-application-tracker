@@ -1455,6 +1455,11 @@ tbody tr:hover {
   padding: 0 11px;
 }
 
+.form-grid select[multiple] {
+  height: 138px;
+  padding: 8px 11px;
+}
+
 .form-grid textarea {
   min-height: 104px;
   resize: vertical;
