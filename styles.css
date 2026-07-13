@@ -289,18 +289,6 @@ label.icon-button:focus-within {
   background: rgba(250, 204, 21, 0.08);
 }
 
-.account-action-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-  align-items: stretch;
-}
-
-.account-delete-inline {
-  min-height: 60px;
-  justify-content: center;
-}
-
 .account-inline-editor {
   display: grid;
   gap: 6px;
@@ -399,6 +387,12 @@ label.icon-button:focus-within {
   border-radius: var(--radius);
   color: #f8fafc;
   background: rgba(15, 23, 42, 0.38);
+}
+
+.account-admin-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
 }
 
 .account-input-row {

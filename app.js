@@ -109,6 +109,7 @@ let editingId = null;
 let selectedId = null;
 let draggedId = null;
 let pendingSwitchAccountId = "";
+let pendingDeleteAccountId = "";
 let masterPasswordUnlocked = false;
 let toastTimer = null;
 let swipeState = null;
@@ -127,8 +128,8 @@ const els = {
   accountPasswordGate: document.querySelector("#accountPasswordGate"),
   accountRecoveryList: document.querySelector("#accountRecoveryList"),
   accountSecurityHint: document.querySelector("#accountSecurityHint"),
-  requestDeleteAccountBtn: document.querySelector("#requestDeleteAccountBtn"),
   deleteAccountConfirm: document.querySelector("#deleteAccountConfirm"),
+  deleteAccountConfirmText: document.querySelector("#deleteAccountConfirmText"),
   confirmDeleteAccountBtn: document.querySelector("#confirmDeleteAccountBtn"),
   cancelDeleteAccountBtn: document.querySelector("#cancelDeleteAccountBtn"),
   accountFeedback: document.querySelector("#accountFeedback"),
@@ -623,6 +624,7 @@ function toggleAccountMenu(forceOpen) {
     window.setTimeout(() => els.newAccountNameInput.focus({ preventScroll: true }), 80);
   } else {
     pendingSwitchAccountId = "";
+    pendingDeleteAccountId = "";
     masterPasswordUnlocked = false;
     els.deleteAccountConfirm.classList.add("hidden");
     setAccountFeedback();
@@ -655,15 +657,12 @@ function renderAccountPanel() {
           ${
             isActive
               ? `<div class="account-current-tools" aria-label="当前账号操作">
-                  <div class="account-action-grid">
-                    <div class="account-inline-editor">
-                      <label for="renameAccountInput">重命名当前账号</label>
-                      <div class="account-input-row">
-                        <input id="renameAccountInput" type="text" maxlength="24" value="${escapeHTML(account.name)}" autocomplete="off" />
-                        <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
-                      </div>
+                  <div class="account-inline-editor">
+                    <label for="renameAccountInput">重命名当前账号</label>
+                    <div class="account-input-row">
+                      <input id="renameAccountInput" type="text" maxlength="24" value="${escapeHTML(account.name)}" autocomplete="off" />
+                      <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
                     </div>
-                    <button id="requestDeleteAccountBtn" class="mini-button danger-mini account-delete-inline" type="button" ${accounts.length <= 1 ? "disabled" : ""}>删除当前账号</button>
                   </div>
                   <div class="account-inline-editor">
                     <label for="currentAccountPasswordInput">${hasPassword ? "更改当前密码" : "账号设置密码"}</label>
@@ -738,12 +737,15 @@ function renderPasswordManager() {
             <span>${accountHasPassword(account) ? "已设密码" : "未设密码"}</span>
           </div>
           <input type="password" placeholder="输入新密码" autocomplete="new-password" data-reset-password-input="${account.id}" />
-          <button class="mini-button" type="button" data-reset-password-account="${account.id}">重置</button>
+          <div class="account-admin-actions">
+            <button class="mini-button" type="button" data-reset-password-account="${account.id}">重置密码</button>
+            <button class="mini-button danger-mini" type="button" data-admin-delete-account="${account.id}" ${accounts.length <= 1 ? "disabled" : ""}>删除账号</button>
+          </div>
         </div>
       `,
     )
     .join("");
-  els.accountSecurityHint.textContent = "旧密码不会显示；这里只能把账号改成新密码。";
+  els.accountSecurityHint.textContent = "旧密码不会显示；这里可以重置任意账号密码，也可以删除不再使用的账号。";
 }
 
 function resetFiltersForAccount() {
@@ -914,11 +916,19 @@ function lockMasterPassword() {
   setAccountFeedback("密码管理已锁定。");
 }
 
-function requestDeleteAccount() {
+function requestDeleteAccount(accountId) {
   if (accounts.length <= 1) {
     setAccountFeedback("至少保留一个账号。", "error");
     return;
   }
+  if (!masterPasswordUnlocked) {
+    setAccountFeedback("请先输入管理密码进入管理员账户。", "error");
+    return;
+  }
+  const account = accounts.find((item) => item.id === accountId);
+  if (!account) return;
+  pendingDeleteAccountId = account.id;
+  els.deleteAccountConfirmText.textContent = `确认删除「${account.name}」和它的全部记录？`;
   els.deleteAccountConfirm.classList.remove("hidden");
   setAccountFeedback("删除后，这个账号下的投递记录也会一起删除。", "error");
 }
@@ -928,15 +938,19 @@ function deleteAccount() {
     setAccountFeedback("至少保留一个账号。", "error");
     return;
   }
-  const account = activeAccount();
+  const account = accounts.find((item) => item.id === pendingDeleteAccountId);
   if (!account) return;
   localStorage.removeItem(recordsKey(account.id));
   accounts = accounts.filter((item) => item.id !== account.id);
-  activeAccountId = accounts[0].id;
+  if (activeAccountId === account.id) {
+    activeAccountId = accounts[0].id;
+    loadRecords();
+    resetFiltersForAccount();
+  }
+  pendingDeleteAccountId = "";
   saveAccounts();
-  loadRecords();
-  resetFiltersForAccount();
   setAccountFeedback(`已删除「${account.name}」。`, "success");
+  els.deleteAccountConfirm.classList.add("hidden");
   render();
   toggleAccountMenu(true);
 }
@@ -2089,6 +2103,7 @@ function bindEvents() {
   els.createAccountBtn.addEventListener("click", createAccount);
   els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
   els.cancelDeleteAccountBtn.addEventListener("click", () => {
+    pendingDeleteAccountId = "";
     els.deleteAccountConfirm.classList.add("hidden");
     setAccountFeedback();
   });
@@ -2152,10 +2167,10 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
-    const requestDeleteAccountTarget = event.target.closest("#requestDeleteAccountBtn");
     const saveAccountNameTarget = event.target.closest("#saveAccountNameBtn");
     const saveAccountPasswordTarget = event.target.closest("#saveAccountPasswordBtn");
     const resetPasswordTarget = event.target.closest("[data-reset-password-account]");
+    const adminDeleteAccountTarget = event.target.closest("[data-admin-delete-account]");
     const setMasterPasswordTarget = event.target.closest("[data-set-master-password]");
     const unlockMasterPasswordTarget = event.target.closest("[data-unlock-master-password]");
     const lockMasterPasswordTarget = event.target.closest("[data-lock-master-password]");
@@ -2187,11 +2202,6 @@ function bindEvents() {
       return;
     }
 
-    if (requestDeleteAccountTarget) {
-      requestDeleteAccount();
-      return;
-    }
-
     if (accountTarget) {
       switchAccount(accountTarget.dataset.switchAccount);
       return;
@@ -2201,6 +2211,11 @@ function bindEvents() {
       const accountId = resetPasswordTarget.dataset.resetPasswordAccount;
       const passwordInput = document.querySelector(`[data-reset-password-input="${accountId}"]`);
       resetAccountPassword(accountId, passwordInput?.value || "");
+      return;
+    }
+
+    if (adminDeleteAccountTarget) {
+      requestDeleteAccount(adminDeleteAccountTarget.dataset.adminDeleteAccount);
       return;
     }
 

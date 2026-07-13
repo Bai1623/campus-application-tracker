@@ -57,18 +57,15 @@
           </div>
 
           <div class="account-editor">
-            <label>本机密码管理</label>
+            <label>管理员账户</label>
             <div id="accountPasswordGate" class="account-security-gate"></div>
             <div id="accountRecoveryList" class="account-security-list"></div>
-            <p id="accountSecurityHint" class="account-help">旧密码无法查看；通过管理密码后才能重置。</p>
-          </div>
-
-          <div class="account-danger-zone">
             <div id="deleteAccountConfirm" class="delete-confirm hidden">
-              <span>确认删除当前账号和它的记录？</span>
+              <span id="deleteAccountConfirmText">确认删除这个账号和它的记录？</span>
               <button id="confirmDeleteAccountBtn" class="mini-button danger-mini" type="button">确认</button>
               <button id="cancelDeleteAccountBtn" class="mini-button" type="button">取消</button>
             </div>
+            <p id="accountSecurityHint" class="account-help">旧密码无法查看；通过管理密码后才能重置。</p>
           </div>
 
           <p id="accountFeedback" class="account-feedback" aria-live="polite">每个账号的数据本地隔离保存。</p>
