@@ -69,6 +69,7 @@ const MAX_RECORD_CITIES = 3;
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
+const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
 
 const icons = {
   search:
@@ -1856,6 +1857,22 @@ async function buildImportLink() {
   return (await buildImportLinkParts()).link;
 }
 
+async function buildCloudImportLink() {
+  const response = await fetch(`${SHARE_API_BASE_URL}/api/share`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(buildImportPayload()),
+  });
+
+  if (!response.ok) throw new Error("Share upload failed");
+
+  const data = await response.json();
+  if (!data?.url) throw new Error("Share url missing");
+  return data.url;
+}
+
 function copyText(text) {
   if (window.AndroidBridge?.copyTextSilent) {
     window.AndroidBridge.copyTextSilent(text);
@@ -1880,11 +1897,17 @@ function copyText(text) {
 
 async function copyImportLink() {
   try {
-    const { link, token } = await buildImportLinkParts();
+    const link = await buildCloudImportLink();
     await copyText(link);
     showToast("已复制");
   } catch {
-    showToast("复制失败");
+    try {
+      const { link } = await buildImportLinkParts();
+      await copyText(link);
+      showToast("云端失败，已复制本地链接");
+    } catch {
+      showToast("复制失败");
+    }
   }
 }
 
@@ -1954,19 +1977,55 @@ function tokenFromImportInput(value = "") {
   }
 }
 
+function cloudShareIdFromInput(value = "") {
+  const text = value.trim();
+  if (!text) return "";
+
+  try {
+    const url = new URL(text);
+    if (url.hostname !== new URL(SHARE_API_BASE_URL).hostname) return "";
+
+    const shareMatch = url.pathname.match(/^\/api\/share\/([A-Za-z0-9]{6,32})$/);
+    if (shareMatch) return shareMatch[1];
+
+    const shortMatch = url.pathname.match(/^\/i\/([A-Za-z0-9]{6,32})$/);
+    if (shortMatch) return shortMatch[1];
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+async function importCloudShare(id) {
+  const response = await fetch(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
+  if (!response.ok) throw new Error("Share not found");
+  const payload = await response.json();
+  return normalizeImportedRecords(payload);
+}
+
 async function importFromLinkInput() {
-  const token = tokenFromImportInput(els.importLinkInput.value);
-  if (!token) {
+  const input = els.importLinkInput.value.trim();
+  const shareId = cloudShareIdFromInput(input);
+  const token = tokenFromImportInput(input);
+
+  if (!shareId && !token) {
     setImportLinkFeedback("先粘贴导入链接。", "error");
     els.importLinkInput.focus();
     return;
   }
+
+  setImportLinkFeedback("正在导入...", "info");
+
   try {
-    applyImportedRecords(await decodeImportToken(decodeURIComponent(token)));
+    const nextRecords = shareId
+      ? await importCloudShare(shareId)
+      : await decodeImportToken(decodeURIComponent(token));
+    applyImportedRecords(nextRecords);
     closeLinkImportDialog();
     showToast("已导入");
   } catch {
-    setImportLinkFeedback("导入链接无效或已损坏。", "error");
+    setImportLinkFeedback("导入链接无效、已过期或网络不可用。", "error");
   }
 }
 
