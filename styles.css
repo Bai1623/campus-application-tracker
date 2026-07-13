@@ -194,6 +194,7 @@ label.icon-button:focus-within {
 
 .account-list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -203,15 +204,17 @@ label.icon-button:focus-within {
 }
 
 .account-list-item.is-current {
-  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
-  align-items: start;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 0.48fr) minmax(0, 0.52fr);
+  align-items: stretch;
 }
 
 .account-switch {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-height: 42px;
   padding: 8px 10px;
   border: 1px solid rgba(148, 163, 184, 0.3);
@@ -284,6 +287,18 @@ label.icon-button:focus-within {
   border: 1px solid rgba(250, 204, 21, 0.24);
   border-radius: var(--radius);
   background: rgba(250, 204, 21, 0.08);
+}
+
+.account-action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.account-delete-inline {
+  min-height: 60px;
+  justify-content: center;
 }
 
 .account-inline-editor {
@@ -407,6 +422,9 @@ label.icon-button:focus-within {
 }
 
 .account-menu .mini-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-color: rgba(226, 232, 240, 0.24);
   color: #f8fafc;
   background: rgba(255, 255, 255, 0.1);
@@ -977,7 +995,49 @@ label.icon-button:focus-within {
   gap: 10px;
 }
 
+.record-list-cards {
+  display: grid;
+  gap: 12px;
+}
+
 .record-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface);
+  touch-action: pan-y;
+}
+
+.record-card-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  grid-template-columns: 64px 68px;
+  width: 132px;
+  overflow: hidden;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.swipe-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.pin-action {
+  background: #d97706;
+}
+
+.delete-action {
+  background: #dc2626;
+}
+
+.record-card-surface {
   display: grid;
   gap: 11px;
   padding: 13px;
@@ -993,19 +1053,28 @@ label.icon-button:focus-within {
     border-color 180ms ease,
     box-shadow 180ms ease,
     opacity 180ms ease;
+  will-change: transform;
 }
 
-.record-card:hover {
+.record-card:hover .record-card-surface {
   border-color: var(--line-strong);
   box-shadow: var(--shadow);
   transform: translateY(-2px);
+}
+
+.record-card.is-swiping .record-card-surface,
+.record-card.is-swiped .record-card-surface {
+  transition:
+    transform 120ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .record-card.dragging {
   opacity: 0.45;
 }
 
-.record-card.overdue {
+.record-card.overdue .record-card-surface {
   background: linear-gradient(0deg, rgba(255, 240, 228, 0.7), #ffffff 46%);
 }
 
@@ -1064,6 +1133,11 @@ label.icon-button:focus-within {
 .tag.warn {
   color: #7a4a1f;
   background: var(--accent-soft);
+}
+
+.pin-tag {
+  color: #8a4b0f;
+  background: #ffedd5;
 }
 
 .tag.city-tag {
@@ -1879,11 +1953,11 @@ tbody tr:hover {
   background: var(--status-color);
 }
 
-.record-card[data-status] {
+.record-card[data-status] .record-card-surface {
   border-left-color: var(--status-color);
 }
 
-.record-card[data-importance] {
+.record-card[data-importance] .record-card-surface {
   border-left-color: var(--importance-color);
 }
 
@@ -1917,12 +1991,16 @@ tbody tr:hover {
   --importance-bg: #fef2f2;
 }
 
-.record-card[data-importance="4"],
-.record-card[data-importance="5"] {
+.record-card[data-importance="4"] .record-card-surface,
+.record-card[data-importance="5"] .record-card-surface {
   background: linear-gradient(0deg, var(--importance-bg), #ffffff 54%);
 }
 
-.record-card[data-update-overdue="true"] {
+.record-card[data-pinned="true"] .record-card-surface {
+  box-shadow: 0 12px 34px rgba(217, 119, 6, 0.12);
+}
+
+.record-card[data-update-overdue="true"] .record-card-surface {
   --importance-color: #991b1b;
   --importance-bg: #fee2e2;
   border-color: rgba(153, 27, 27, 0.42);

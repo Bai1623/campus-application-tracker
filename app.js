@@ -111,6 +111,7 @@ let draggedId = null;
 let pendingSwitchAccountId = "";
 let masterPasswordUnlocked = false;
 let toastTimer = null;
+let swipeState = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -513,6 +514,12 @@ function getFilteredRecords() {
     const overdueDiff = Number(isUpdateOverdue(a)) - Number(isUpdateOverdue(b));
     if (overdueDiff !== 0) return overdueDiff;
 
+    if (!isUpdateOverdue(a) && !isUpdateOverdue(b)) {
+      const pinnedDiff = Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt));
+      if (pinnedDiff !== 0) return pinnedDiff;
+      if (a.pinnedAt && b.pinnedAt) return b.pinnedAt.localeCompare(a.pinnedAt);
+    }
+
     const importanceDiff = importanceValue(b) - importanceValue(a);
     if (importanceDiff !== 0) return importanceDiff;
 
@@ -648,12 +655,15 @@ function renderAccountPanel() {
           ${
             isActive
               ? `<div class="account-current-tools" aria-label="当前账号操作">
-                  <div class="account-inline-editor">
-                    <label for="renameAccountInput">重命名当前账号</label>
-                    <div class="account-input-row">
-                      <input id="renameAccountInput" type="text" maxlength="24" value="${escapeHTML(account.name)}" autocomplete="off" />
-                      <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
+                  <div class="account-action-grid">
+                    <div class="account-inline-editor">
+                      <label for="renameAccountInput">重命名当前账号</label>
+                      <div class="account-input-row">
+                        <input id="renameAccountInput" type="text" maxlength="24" value="${escapeHTML(account.name)}" autocomplete="off" />
+                        <button id="saveAccountNameBtn" class="mini-button" type="button">保存</button>
+                      </div>
                     </div>
+                    <button id="requestDeleteAccountBtn" class="mini-button danger-mini account-delete-inline" type="button" ${accounts.length <= 1 ? "disabled" : ""}>删除当前账号</button>
                   </div>
                   <div class="account-inline-editor">
                     <label for="currentAccountPasswordInput">${hasPassword ? "更改当前密码" : "账号设置密码"}</label>
@@ -678,7 +688,6 @@ function renderAccountPanel() {
     })
     .join("");
   renderPasswordManager();
-  els.requestDeleteAccountBtn.disabled = accounts.length <= 1;
 }
 
 function renderPasswordManager() {
@@ -784,11 +793,6 @@ async function createAccount() {
     els.newAccountNameInput.focus();
     return;
   }
-  if (!password) {
-    setAccountFeedback("请给这个账号设置一个密码，简单也可以。", "error");
-    els.newAccountPasswordInput.focus();
-    return;
-  }
   if (accounts.some((account) => account.name === normalizedName)) {
     setAccountFeedback("这个账号名已经存在。", "error");
     els.newAccountNameInput.select();
@@ -799,7 +803,7 @@ async function createAccount() {
     name: normalizedName,
     createdAt: todayISO(),
   };
-  await setAccountPassword(account, password);
+  if (password) await setAccountPassword(account, password);
   accounts.push(account);
   activeAccountId = account.id;
   pendingSwitchAccountId = "";
@@ -1038,12 +1042,14 @@ function renderBoard(list) {
   }).join("");
 }
 
-function recordCardHTML(record) {
+function recordCardHTML(record, variant = "") {
   const stale = isStale(record);
   const due = isDue(record);
   const updateOverdue = isUpdateOverdue(record);
   const importance = normalizeImportance(record);
+  const pinned = Boolean(record.pinnedAt);
   const tags = [
+    pinned ? `<span class="tag pin-tag">已置顶</span>` : "",
     `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
     `<span class="tag city-tag">${escapeHTML(cityText(record))}</span>`,
     `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
@@ -1055,24 +1061,30 @@ function recordCardHTML(record) {
     .join("");
 
   return `
-    <article class="record-card ${due ? "overdue" : ""} ${updateOverdue ? "update-overdue" : ""}" draggable="true" data-card-id="${record.id}" data-open-id="${record.id}" data-status="${record.status}" data-importance="${importance}" data-update-overdue="${updateOverdue ? "true" : "false"}">
-      <div class="card-top">
-        <div>
-          <h3 class="card-title">${escapeHTML(record.company)}</h3>
-          <div class="card-subtitle">${escapeHTML(record.position || "未填写岗位")}</div>
-        </div>
-        <span class="importance-badge">${stars(importance)}</span>
+    <article class="record-card ${variant} ${due ? "overdue" : ""} ${updateOverdue ? "update-overdue" : ""}" draggable="true" data-card-id="${record.id}" data-status="${record.status}" data-importance="${importance}" data-update-overdue="${updateOverdue ? "true" : "false"}" data-pinned="${pinned ? "true" : "false"}">
+      <div class="record-card-actions" aria-label="记录操作">
+        <button class="swipe-action pin-action" type="button" data-pin-id="${record.id}">${pinned ? "取消置顶" : "置顶"}</button>
+        <button class="swipe-action delete-action" type="button" data-delete-id="${record.id}">删除</button>
       </div>
-      <div class="tag-row">${tags}</div>
-      <div class="meta-line">更新于 ${formatDate(record.updatedAt)} · 投递于 ${formatDate(record.appliedAt)}</div>
-      ${record.note ? `<div class="meta-line">${escapeHTML(record.note)}</div>` : ""}
-      <div class="quick-status" aria-label="快速切换状态">
-        ${STATUSES.filter((status) => status.id !== record.status)
-          .map(
-            (status) =>
-              `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
-          )
-          .join("")}
+      <div class="record-card-surface" data-open-id="${record.id}">
+        <div class="card-top">
+          <div>
+            <h3 class="card-title">${escapeHTML(record.company)}</h3>
+            <div class="card-subtitle">${escapeHTML(record.position || "未填写岗位")}</div>
+          </div>
+          <span class="importance-badge">${stars(importance)}</span>
+        </div>
+        <div class="tag-row">${tags}</div>
+        <div class="meta-line">更新于 ${formatDate(record.updatedAt)} · 投递于 ${formatDate(record.appliedAt)}</div>
+        ${record.note ? `<div class="meta-line">${escapeHTML(record.note)}</div>` : ""}
+        <div class="quick-status" aria-label="快速切换状态">
+          ${STATUSES.filter((status) => status.id !== record.status)
+            .map(
+              (status) =>
+                `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
+            )
+            .join("")}
+        </div>
       </div>
     </article>
   `;
@@ -1085,51 +1097,9 @@ function renderTable(list) {
   }
 
   els.tableView.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>公司</th>
-          <th>岗位</th>
-          <th>城市</th>
-          <th>重要程度</th>
-          <th>状态</th>
-          <th>来源</th>
-          <th>更新</th>
-          <th>下次检查</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${list
-          .map(
-            (record) => {
-              const updateOverdue = isUpdateOverdue(record);
-              return `
-              <tr data-status="${record.status}" data-update-overdue="${updateOverdue ? "true" : "false"}">
-                <td>
-                  <strong class="table-company">${escapeHTML(record.company)}</strong>
-                  ${updateOverdue ? `<div class="meta-line danger-text">逾期预警</div>` : ""}
-                </td>
-                <td>${escapeHTML(record.position || "未填写")}</td>
-                <td>${escapeHTML(cityText(record))}</td>
-                <td data-importance="${normalizeImportance(record)}"><span class="importance-badge">${stars(normalizeImportance(record))}</span></td>
-                <td><span class="tag status-badge">${escapeHTML(record.status)}</span></td>
-                <td>${sourceToHTML(record)}</td>
-                <td>${formatDate(record.updatedAt)}<div class="meta-line">${daysBetween(record.updatedAt)} 天前${updateOverdue ? ` · ${monthsBetween(record.updatedAt)} 个月` : ""}</div></td>
-                <td>${formatDate(record.nextCheckAt)}</td>
-                <td>
-                  <div class="row-actions">
-                    <button class="mini-button" type="button" data-open-id="${record.id}">查看</button>
-                    <button class="mini-button" type="button" data-edit-id="${record.id}">编辑</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-            },
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="record-list-cards">
+      ${list.map((record) => recordCardHTML(record, "list-card")).join("")}
+    </div>
   `;
 }
 
@@ -1465,6 +1435,7 @@ function formToRecord(base = null) {
     updatedAt: data.updatedAt || now,
     nextCheckAt: data.nextCheckAt || "",
     importance: data.importance || normalizeImportance(base),
+    pinnedAt: base?.pinnedAt || "",
     note,
     history: base?.history?.length
       ? [...base.history]
@@ -1565,6 +1536,16 @@ function updateRecordStatus(id, status, note = "快速切换状态") {
   if (selectedId === id) openDrawer(id);
 }
 
+function toggleRecordPin(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record) return;
+  record.pinnedAt = record.pinnedAt ? "" : new Date().toISOString();
+  saveRecords();
+  render();
+  if (selectedId === id) openDrawer(id);
+  showToast(record.pinnedAt ? "已置顶" : "已取消置顶");
+}
+
 function markDueChecked(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
@@ -1590,6 +1571,14 @@ function deleteRecord(id) {
   closeDrawer();
   closeRecordDialog();
   render();
+}
+
+function closeSwipedCards(exceptCard = null) {
+  document.querySelectorAll(".record-card.is-swiped").forEach((card) => {
+    if (card === exceptCard) return;
+    card.classList.remove("is-swiped");
+    card.querySelector(".record-card-surface")?.style.removeProperty("transform");
+  });
 }
 
 function openDrawer(id) {
@@ -1715,6 +1704,7 @@ function normalizeImportedRecords(input) {
     updatedAt: record.updatedAt || todayISO(),
     nextCheckAt: record.nextCheckAt || "",
     importance: normalizeImportance(record),
+    pinnedAt: record.pinnedAt || "",
     note: record.note || "",
     history: Array.isArray(record.history) ? record.history : [],
   }));
@@ -2097,7 +2087,6 @@ function bindEvents() {
   els.accountMenuBtn.addEventListener("click", () => toggleAccountMenu());
   els.closeAccountMenuBtn.addEventListener("click", () => toggleAccountMenu(false));
   els.createAccountBtn.addEventListener("click", createAccount);
-  els.requestDeleteAccountBtn.addEventListener("click", requestDeleteAccount);
   els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
   els.cancelDeleteAccountBtn.addEventListener("click", () => {
     els.deleteAccountConfirm.classList.add("hidden");
@@ -2163,6 +2152,7 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
+    const requestDeleteAccountTarget = event.target.closest("#requestDeleteAccountBtn");
     const saveAccountNameTarget = event.target.closest("#saveAccountNameBtn");
     const saveAccountPasswordTarget = event.target.closest("#saveAccountPasswordBtn");
     const resetPasswordTarget = event.target.closest("[data-reset-password-account]");
@@ -2173,6 +2163,7 @@ function bindEvents() {
     const openTarget = event.target.closest("[data-open-id]");
     const editTarget = event.target.closest("[data-edit-id]");
     const deleteTarget = event.target.closest("[data-delete-id]");
+    const pinTarget = event.target.closest("[data-pin-id]");
     const dueCheckedTarget = event.target.closest("[data-due-checked-id]");
     const quickTarget = event.target.closest("[data-quick-status]");
     const filterTarget = event.target.closest("[data-filter-status]");
@@ -2193,6 +2184,11 @@ function bindEvents() {
 
     if (saveAccountPasswordTarget) {
       updateCurrentAccountPassword();
+      return;
+    }
+
+    if (requestDeleteAccountTarget) {
+      requestDeleteAccount();
       return;
     }
 
@@ -2272,14 +2268,81 @@ function bindEvents() {
       return;
     }
 
+    if (pinTarget) {
+      event.stopPropagation();
+      toggleRecordPin(pinTarget.dataset.pinId);
+      return;
+    }
+
     if (closeTarget) {
       closeDrawer();
       return;
     }
 
     if (openTarget) {
+      const swipedCard = event.target.closest(".record-card.is-swiped");
+      if (swipedCard) {
+        closeSwipedCards();
+        return;
+      }
       openDrawer(openTarget.dataset.openId);
     }
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const surface = event.target.closest(".record-card-surface");
+    if (!surface || event.target.closest("button, a, input, textarea, select")) return;
+    const card = surface.closest(".record-card");
+    if (!card) return;
+    swipeState = {
+      card,
+      surface,
+      startX: event.clientX,
+      startY: event.clientY,
+      deltaX: 0,
+      dragging: false,
+      pointerId: event.pointerId,
+    };
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!swipeState || event.pointerId !== swipeState.pointerId) return;
+    const deltaX = event.clientX - swipeState.startX;
+    const deltaY = event.clientY - swipeState.startY;
+    if (!swipeState.dragging && Math.abs(deltaX) < 10) return;
+    if (!swipeState.dragging && Math.abs(deltaY) > Math.abs(deltaX)) {
+      swipeState = null;
+      return;
+    }
+    swipeState.dragging = true;
+    swipeState.deltaX = deltaX;
+    const offset = Math.max(-132, Math.min(0, deltaX));
+    swipeState.card.classList.add("is-swiping");
+    swipeState.surface.style.transform = `translateX(${offset}px)`;
+    event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("pointerup", (event) => {
+    if (!swipeState || event.pointerId !== swipeState.pointerId) return;
+    const { card, surface, deltaX, dragging } = swipeState;
+    swipeState = null;
+    card.classList.remove("is-swiping");
+    if (!dragging) return;
+    if (deltaX < -56) {
+      closeSwipedCards(card);
+      card.classList.add("is-swiped");
+      surface.style.transform = "translateX(-132px)";
+    } else {
+      card.classList.remove("is-swiped");
+      surface.style.removeProperty("transform");
+    }
+  });
+
+  document.addEventListener("pointercancel", () => {
+    if (!swipeState) return;
+    swipeState.card.classList.remove("is-swiping");
+    swipeState.surface.style.removeProperty("transform");
+    swipeState = null;
   });
 
   document.addEventListener("dragstart", (event) => {
