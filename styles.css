@@ -682,6 +682,42 @@ label.icon-button:focus-within {
   padding: 26px 28px 40px;
 }
 
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 28px;
+  padding: 16px 12px 2px;
+  border-top: 1px solid rgba(13, 148, 136, 0.16);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-footer span {
+  letter-spacing: 0.02em;
+}
+
+.footer-link {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(13, 148, 136, 0.24);
+  border-radius: var(--radius);
+  color: var(--primary-strong);
+  background: rgba(217, 245, 241, 0.68);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.footer-link:hover,
+.footer-link:focus-visible {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  transform: translateY(-1px);
+}
+
 .topbar {
   display: flex;
   align-items: flex-start;
@@ -1453,6 +1489,16 @@ tbody tr:hover {
   width: min(520px, calc(100vw - 28px));
 }
 
+.author-dialog {
+  width: min(560px, calc(100vw - 28px));
+}
+
+.author-dialog-head {
+  background:
+    linear-gradient(135deg, rgba(217, 245, 241, 0.86), rgba(255, 240, 228, 0.52)),
+    var(--surface);
+}
+
 .dialog-head,
 .dialog-actions {
   padding: 18px 20px;
@@ -1570,6 +1616,53 @@ tbody tr:hover {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.author-content {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 20px;
+}
+
+.author-badge {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  border-radius: 18px;
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, var(--primary), var(--primary-strong) 58%, var(--accent)),
+    var(--primary);
+  box-shadow: 0 12px 24px rgba(13, 148, 136, 0.18);
+  font-size: 24px;
+  font-weight: 950;
+}
+
+.author-content p {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--surface-2);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.author-content a {
+  color: var(--primary-strong);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.author-content a:hover,
+.author-content a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .share-box label {
@@ -1851,8 +1944,16 @@ svg {
   .stats-grid,
   .insight-hero,
   .insight-grid,
-  .form-grid {
+  .form-grid,
+  .author-content {
     grid-template-columns: 1fr;
+  }
+
+  .author-badge {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    font-size: 20px;
   }
 
   .bar-row,

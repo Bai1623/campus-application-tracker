@@ -148,6 +148,9 @@ const els = {
   mobileBtn: document.querySelector("#mobileBtn"),
   mobileDialog: document.querySelector("#mobileDialog"),
   closeMobileDialogBtn: document.querySelector("#closeMobileDialogBtn"),
+  authorContactBtn: document.querySelector("#authorContactBtn"),
+  authorDialog: document.querySelector("#authorDialog"),
+  closeAuthorDialogBtn: document.querySelector("#closeAuthorDialogBtn"),
   shareUrl: document.querySelector("#shareUrl"),
   copyLinkBtn: document.querySelector("#copyLinkBtn"),
   nativeShareBtn: document.querySelector("#nativeShareBtn"),
@@ -1774,6 +1777,14 @@ function closeMobileDialog() {
   closeDialog(els.mobileDialog);
 }
 
+function openAuthorDialog() {
+  openDialog(els.authorDialog);
+}
+
+function closeAuthorDialog() {
+  closeDialog(els.authorDialog);
+}
+
 async function copyShareLink() {
   try {
     await navigator.clipboard.writeText(els.shareUrl.value);
@@ -1842,6 +1853,8 @@ function bindEvents() {
   els.importInput.addEventListener("change", (event) => importData(event.target.files[0]));
   els.mobileBtn.addEventListener("click", openMobileDialog);
   els.closeMobileDialogBtn.addEventListener("click", closeMobileDialog);
+  els.authorContactBtn.addEventListener("click", openAuthorDialog);
+  els.closeAuthorDialogBtn.addEventListener("click", closeAuthorDialog);
   els.copyLinkBtn.addEventListener("click", copyShareLink);
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", handleSearchInput);
