@@ -68,6 +68,7 @@ const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
+const COPIED_IMPORT_TOKEN_KEY = "campus-application-tracker:copied-import-token:v1";
 
 const icons = {
   search:
@@ -109,6 +110,7 @@ let draggedId = null;
 let pendingSwitchAccountId = "";
 let masterPasswordUnlocked = false;
 let pendingLinkImportRecords = null;
+let toastTimer = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -176,6 +178,7 @@ const els = {
   drawerBackdrop: document.querySelector("#drawerBackdrop"),
   detailDrawer: document.querySelector("#detailDrawer"),
   modalBackdrop: document.querySelector("#modalBackdrop"),
+  toast: document.querySelector("#toast"),
 };
 
 function todayISO() {
@@ -340,6 +343,18 @@ function hydrateIcons(root = document) {
   });
 }
 
+function showToast(message = "已完成") {
+  if (!els.toast) return;
+  window.clearTimeout(toastTimer);
+  els.toast.textContent = message;
+  els.toast.classList.remove("hidden");
+  els.toast.classList.add("is-visible");
+  toastTimer = window.setTimeout(() => {
+    els.toast.classList.remove("is-visible");
+    toastTimer = window.setTimeout(() => els.toast.classList.add("hidden"), 180);
+  }, 1600);
+}
+
 function recordsKey(accountId = activeAccountId) {
   return `${ACCOUNT_RECORDS_PREFIX}${accountId}`;
 }
@@ -457,6 +472,7 @@ function closeActiveDialog() {
     if (activeDialog === els.linkImportDialog) {
       pendingLinkImportRecords = null;
       clearImportTokenFromUrl();
+      clearCopiedImportToken();
     }
     return true;
   }
@@ -757,6 +773,7 @@ async function switchAccount(accountId, password = "") {
   resetFiltersForAccount();
   render();
   toggleAccountMenu(false);
+  detectLinkImport({ includeCopiedToken: true });
 }
 
 async function createAccount() {
@@ -794,7 +811,8 @@ async function createAccount() {
   els.newAccountPasswordInput.value = "";
   setAccountFeedback(`已切换到「${account.name}」。`, "success");
   render();
-  toggleAccountMenu(true);
+  toggleAccountMenu(false);
+  detectLinkImport({ includeCopiedToken: true });
 }
 
 function renameAccount() {
@@ -1826,16 +1844,24 @@ function buildImportPayload() {
   };
 }
 
-async function buildImportLink() {
+async function buildImportLinkParts() {
   const url = new URL(window.location.href);
   url.searchParams.delete("reset");
   url.hash = "";
   const token = await encodeImportToken(buildImportPayload());
   url.hash = `${LINK_IMPORT_PARAM}=${encodeURIComponent(token)}`;
-  return url.toString();
+  return { link: url.toString(), token };
+}
+
+async function buildImportLink() {
+  return (await buildImportLinkParts()).link;
 }
 
 function copyText(text) {
+  if (window.AndroidBridge?.copyTextSilent) {
+    window.AndroidBridge.copyTextSilent(text);
+    return Promise.resolve();
+  }
   if (window.AndroidBridge?.copyJson) {
     window.AndroidBridge.copyJson(text);
     return Promise.resolve();
@@ -1855,10 +1881,12 @@ function copyText(text) {
 
 async function copyImportLink() {
   try {
-    await copyText(await buildImportLink());
-    window.alert("导入链接已复制，可以发到微信、QQ 或电脑浏览器打开。");
+    const { link, token } = await buildImportLinkParts();
+    localStorage.setItem(COPIED_IMPORT_TOKEN_KEY, token);
+    await copyText(link);
+    showToast("已复制");
   } catch {
-    window.alert("复制导入链接失败，请重试。");
+    showToast("复制失败");
   } finally {
     closeExportDialog();
   }
@@ -1889,6 +1917,20 @@ function getImportTokenFromUrl() {
   return new URLSearchParams(window.location.search).get(LINK_IMPORT_PARAM);
 }
 
+function getCopiedImportToken() {
+  try {
+    return localStorage.getItem(COPIED_IMPORT_TOKEN_KEY);
+  } catch {
+    return "";
+  }
+}
+
+function clearCopiedImportToken() {
+  try {
+    localStorage.removeItem(COPIED_IMPORT_TOKEN_KEY);
+  } catch {}
+}
+
 function clearImportTokenFromUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete(LINK_IMPORT_PARAM);
@@ -1904,6 +1946,7 @@ function closeLinkImportDialog() {
   pendingLinkImportRecords = null;
   closeDialog(els.linkImportDialog);
   clearImportTokenFromUrl();
+  clearCopiedImportToken();
 }
 
 function confirmLinkImport() {
@@ -1912,11 +1955,12 @@ function confirmLinkImport() {
   pendingLinkImportRecords = null;
   closeDialog(els.linkImportDialog);
   clearImportTokenFromUrl();
-  window.alert("链接导入完成。");
+  clearCopiedImportToken();
+  showToast("已导入");
 }
 
-async function detectLinkImport() {
-  const token = getImportTokenFromUrl();
+async function detectLinkImport(options = {}) {
+  const token = getImportTokenFromUrl() || (options.includeCopiedToken ? getCopiedImportToken() : "");
   if (!token) return;
   try {
     pendingLinkImportRecords = await decodeImportToken(decodeURIComponent(token));
@@ -1925,7 +1969,8 @@ async function detectLinkImport() {
     hydrateIcons(els.linkImportDialog);
   } catch {
     clearImportTokenFromUrl();
-    window.alert("导入链接无效或已损坏。");
+    clearCopiedImportToken();
+    showToast("导入链接无效");
   }
 }
 
@@ -2259,6 +2304,7 @@ function init() {
     localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
     localStorage.removeItem(OVERDUE_MONTHS_KEY);
     localStorage.removeItem(MASTER_PASSWORD_KEY);
+    localStorage.removeItem(COPIED_IMPORT_TOKEN_KEY);
     window.history.replaceState(null, "", window.location.pathname);
   }
   hydrateIcons(document);

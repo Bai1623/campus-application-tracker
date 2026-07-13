@@ -1458,6 +1458,35 @@ tbody tr:hover {
   animation: fadeIn 180ms ease both;
 }
 
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 40;
+  min-width: 96px;
+  max-width: calc(100vw - 40px);
+  padding: 11px 18px;
+  border: 1px solid rgba(13, 148, 136, 0.22);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 36px rgba(18, 49, 45, 0.14);
+  backdrop-filter: blur(18px);
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, 10px) scale(0.98);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.app-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
 .record-dialog {
   position: fixed;
   top: 50%;
