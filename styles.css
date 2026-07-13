@@ -1493,9 +1493,19 @@ tbody tr:hover {
   width: min(560px, calc(100vw - 28px));
 }
 
+.link-import-dialog {
+  width: min(540px, calc(100vw - 28px));
+}
+
 .author-dialog-head {
   background:
     linear-gradient(135deg, rgba(217, 245, 241, 0.86), rgba(255, 240, 228, 0.52)),
+    var(--surface);
+}
+
+.link-import-head {
+  background:
+    linear-gradient(135deg, rgba(217, 245, 241, 0.9), rgba(234, 241, 255, 0.58)),
     var(--surface);
 }
 
@@ -1724,6 +1734,37 @@ tbody tr:hover {
   font-size: 12px;
 }
 
+.link-import-content {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 20px;
+}
+
+.link-import-badge {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 1px solid rgba(13, 148, 136, 0.24);
+  border-radius: 18px;
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+}
+
+.link-import-content strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 18px;
+}
+
+.link-import-content p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -1945,11 +1986,13 @@ svg {
   .insight-hero,
   .insight-grid,
   .form-grid,
-  .author-content {
+  .author-content,
+  .link-import-content {
     grid-template-columns: 1fr;
   }
 
-  .author-badge {
+  .author-badge,
+  .link-import-badge {
     width: 48px;
     height: 48px;
     border-radius: 14px;

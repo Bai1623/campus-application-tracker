@@ -66,6 +66,8 @@ const CITY_OPTIONS = [
 const STALE_DAYS = 7;
 const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
+const LINK_IMPORT_PARAM = "import";
+const LINK_IMPORT_VERSION = 1;
 
 const icons = {
   search:
@@ -106,6 +108,7 @@ let selectedId = null;
 let draggedId = null;
 let pendingSwitchAccountId = "";
 let masterPasswordUnlocked = false;
+let pendingLinkImportRecords = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -145,6 +148,12 @@ const els = {
   shareExportBtn: document.querySelector("#shareExportBtn"),
   saveExportBtn: document.querySelector("#saveExportBtn"),
   copyExportBtn: document.querySelector("#copyExportBtn"),
+  copyImportLinkBtn: document.querySelector("#copyImportLinkBtn"),
+  linkImportDialog: document.querySelector("#linkImportDialog"),
+  linkImportSummary: document.querySelector("#linkImportSummary"),
+  confirmLinkImportBtn: document.querySelector("#confirmLinkImportBtn"),
+  rejectLinkImportBtn: document.querySelector("#rejectLinkImportBtn"),
+  cancelLinkImportBtn: document.querySelector("#cancelLinkImportBtn"),
   mobileBtn: document.querySelector("#mobileBtn"),
   mobileDialog: document.querySelector("#mobileDialog"),
   closeMobileDialogBtn: document.querySelector("#closeMobileDialogBtn"),
@@ -444,6 +453,10 @@ function closeActiveDialog() {
     closeDialog(activeDialog);
     if (activeDialog === els.recordDialog) {
       editingId = null;
+    }
+    if (activeDialog === els.linkImportDialog) {
+      pendingLinkImportRecords = null;
+      clearImportTokenFromUrl();
     }
     return true;
   }
@@ -1670,6 +1683,32 @@ function exportJsonText() {
   return JSON.stringify(records, null, 2);
 }
 
+function normalizeImportedRecords(input) {
+  const list = Array.isArray(input) ? input : Array.isArray(input?.records) ? input.records : null;
+  if (!list) throw new Error("Invalid data");
+  return list.map((record) => ({
+    id: record.id || uid(),
+    company: record.company || "",
+    position: record.position || "",
+    cities: recordCities(record).slice(0, MAX_RECORD_CITIES),
+    sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "官网",
+    sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
+    status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
+    appliedAt: record.appliedAt || todayISO(),
+    updatedAt: record.updatedAt || todayISO(),
+    nextCheckAt: record.nextCheckAt || "",
+    importance: normalizeImportance(record),
+    note: record.note || "",
+    history: Array.isArray(record.history) ? record.history : [],
+  }));
+}
+
+function applyImportedRecords(nextRecords) {
+  records = nextRecords;
+  saveRecords();
+  render();
+}
+
 function downloadExportFile() {
   const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1730,30 +1769,108 @@ function copyExportDataFallback() {
   textarea.remove();
 }
 
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function gzipText(text) {
+  if (!("CompressionStream" in window)) return null;
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipText(bytes) {
+  if (!("DecompressionStream" in window)) throw new Error("Decompression not supported");
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+}
+
+async function encodeImportToken(payload) {
+  const text = JSON.stringify(payload);
+  const compressed = await gzipText(text);
+  if (compressed) return `gz.${bytesToBase64Url(compressed)}`;
+  return `raw.${bytesToBase64Url(new TextEncoder().encode(text))}`;
+}
+
+async function decodeImportToken(token) {
+  const [format, value] = token.split(".", 2);
+  if (!format || !value) throw new Error("Invalid import token");
+  const bytes = base64UrlToBytes(value);
+  const text = format === "gz" ? await gunzipText(bytes) : new TextDecoder().decode(bytes);
+  const payload = JSON.parse(text);
+  if (payload?.version && payload.version > LINK_IMPORT_VERSION) throw new Error("Unsupported import version");
+  return normalizeImportedRecords(payload);
+}
+
+function buildImportPayload() {
+  const account = accounts.find((item) => item.id === activeAccountId);
+  return {
+    version: LINK_IMPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    accountName: account?.name || "当前账号",
+    records,
+  };
+}
+
+async function buildImportLink() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("reset");
+  url.hash = "";
+  const token = await encodeImportToken(buildImportPayload());
+  url.hash = `${LINK_IMPORT_PARAM}=${encodeURIComponent(token)}`;
+  return url.toString();
+}
+
+function copyText(text) {
+  if (window.AndroidBridge?.copyJson) {
+    window.AndroidBridge.copyJson(text);
+    return Promise.resolve();
+  }
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+  return Promise.resolve();
+}
+
+async function copyImportLink() {
+  try {
+    await copyText(await buildImportLink());
+    window.alert("导入链接已复制，可以发到微信、QQ 或电脑浏览器打开。");
+  } catch {
+    window.alert("复制导入链接失败，请重试。");
+  } finally {
+    closeExportDialog();
+  }
+}
+
 function importData(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (!Array.isArray(parsed)) throw new Error("Invalid data");
-      records = parsed.map((record) => ({
-        id: record.id || uid(),
-        company: record.company || "",
-        position: record.position || "",
-        cities: recordCities(record).slice(0, MAX_RECORD_CITIES),
-        sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "官网",
-        sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
-        status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
-        appliedAt: record.appliedAt || todayISO(),
-        updatedAt: record.updatedAt || todayISO(),
-        nextCheckAt: record.nextCheckAt || "",
-        importance: normalizeImportance(record),
-        note: record.note || "",
-        history: Array.isArray(record.history) ? record.history : [],
-      }));
-      saveRecords();
-      render();
+      applyImportedRecords(normalizeImportedRecords(parsed));
       window.alert("导入完成。");
     } catch {
       window.alert("导入失败，请确认文件是本应用导出的 JSON。");
@@ -1762,6 +1879,54 @@ function importData(file) {
     }
   };
   reader.readAsText(file);
+}
+
+function getImportTokenFromUrl() {
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  const hashParams = new URLSearchParams(hash);
+  const hashToken = hashParams.get(LINK_IMPORT_PARAM);
+  if (hashToken) return hashToken;
+  return new URLSearchParams(window.location.search).get(LINK_IMPORT_PARAM);
+}
+
+function clearImportTokenFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(LINK_IMPORT_PARAM);
+  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  const hashParams = new URLSearchParams(hash);
+  hashParams.delete(LINK_IMPORT_PARAM);
+  const nextHash = hashParams.toString();
+  url.hash = nextHash ? nextHash : "";
+  window.history.replaceState(null, "", url.toString());
+}
+
+function closeLinkImportDialog() {
+  pendingLinkImportRecords = null;
+  closeDialog(els.linkImportDialog);
+  clearImportTokenFromUrl();
+}
+
+function confirmLinkImport() {
+  if (!pendingLinkImportRecords) return;
+  applyImportedRecords(pendingLinkImportRecords);
+  pendingLinkImportRecords = null;
+  closeDialog(els.linkImportDialog);
+  clearImportTokenFromUrl();
+  window.alert("链接导入完成。");
+}
+
+async function detectLinkImport() {
+  const token = getImportTokenFromUrl();
+  if (!token) return;
+  try {
+    pendingLinkImportRecords = await decodeImportToken(decodeURIComponent(token));
+    els.linkImportSummary.textContent = `准备导入 ${pendingLinkImportRecords.length} 条记录`;
+    openDialog(els.linkImportDialog);
+    hydrateIcons(els.linkImportDialog);
+  } catch {
+    clearImportTokenFromUrl();
+    window.alert("导入链接无效或已损坏。");
+  }
 }
 
 function openMobileDialog() {
@@ -1850,6 +2015,10 @@ function bindEvents() {
   els.shareExportBtn.addEventListener("click", shareExportData);
   els.saveExportBtn.addEventListener("click", saveExportData);
   els.copyExportBtn.addEventListener("click", copyExportData);
+  els.copyImportLinkBtn.addEventListener("click", copyImportLink);
+  els.confirmLinkImportBtn.addEventListener("click", confirmLinkImport);
+  els.rejectLinkImportBtn.addEventListener("click", closeLinkImportDialog);
+  els.cancelLinkImportBtn.addEventListener("click", closeLinkImportDialog);
   els.importInput.addEventListener("change", (event) => importData(event.target.files[0]));
   els.mobileBtn.addEventListener("click", openMobileDialog);
   els.closeMobileDialogBtn.addEventListener("click", closeMobileDialog);
@@ -2102,6 +2271,7 @@ function init() {
   render();
   bindEvents();
   setView(activeView);
+  detectLinkImport();
   registerServiceWorker();
 }
 
