@@ -136,10 +136,10 @@
             <button id="exportBtn" class="icon-button secondary" type="button" aria-label="导出数据" title="导出数据">
               <span data-icon="download"></span>
             </button>
-            <label class="icon-button secondary" aria-label="导入数据" title="导入数据">
+            <button id="importBtn" class="icon-button secondary" type="button" aria-label="导入数据" title="导入数据">
               <span data-icon="upload"></span>
-              <input id="importInput" type="file" accept="application/json" hidden />
-            </label>
+            </button>
+            <input id="importInput" type="file" accept="application/json" hidden />
             <button id="mobileBtn" class="icon-button secondary" type="button" aria-label="手机打开" title="手机打开">
               <span data-icon="phone"></span>
             </button>
@@ -297,7 +297,7 @@
       <div class="dialog-head link-import-head">
         <div>
           <p class="eyebrow">Link Import</p>
-          <h3 id="linkImportTitle">检测到导入链接</h3>
+          <h3 id="linkImportTitle">导入投递记录</h3>
         </div>
         <button class="icon-button ghost" type="button" id="cancelLinkImportBtn" aria-label="关闭" title="关闭">
           <span data-icon="x"></span>
@@ -308,15 +308,27 @@
           <span data-icon="upload"></span>
         </div>
         <div>
-          <strong id="linkImportSummary">准备导入记录</strong>
-          <p>将链接里的投递记录导入到当前账号。导入会覆盖当前账号现有记录，请确认后继续。</p>
+          <strong>选择导入方式</strong>
+          <p>导入会覆盖当前账号现有记录。你可以选择 JSON 文件，也可以粘贴别人发来的导入链接。</p>
         </div>
+      </div>
+      <div class="link-import-actions">
+        <button id="chooseJsonImportBtn" class="export-option" type="button">
+          <span data-icon="upload"></span>
+          <strong>选择 JSON 文件</strong>
+          <small>打开文件管理器，选择之前导出的 JSON 文件</small>
+        </button>
+        <label class="link-import-field" for="importLinkInput">
+          <span>通过链接导入</span>
+          <textarea id="importLinkInput" rows="4" placeholder="粘贴导入链接，例如 https://.../#import=..."></textarea>
+        </label>
+        <p id="importLinkFeedback" class="link-import-feedback" aria-live="polite"></p>
       </div>
       <div class="dialog-actions">
         <button class="text-button" type="button" id="rejectLinkImportBtn">取消</button>
         <button class="primary-button" type="button" id="confirmLinkImportBtn">
           <span data-icon="check"></span>
-          确认导入
+          导入链接
         </button>
       </div>
     </section>

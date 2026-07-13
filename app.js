@@ -68,7 +68,7 @@ const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
-const COPIED_IMPORT_TOKEN_KEY = "campus-application-tracker:copied-import-token:v1";
+const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
 
 const icons = {
   search:
@@ -109,7 +109,6 @@ let selectedId = null;
 let draggedId = null;
 let pendingSwitchAccountId = "";
 let masterPasswordUnlocked = false;
-let pendingLinkImportRecords = null;
 let toastTimer = null;
 
 const els = {
@@ -144,6 +143,7 @@ const els = {
   insightsView: document.querySelector("#insightsView"),
   addBtn: document.querySelector("#addBtn"),
   exportBtn: document.querySelector("#exportBtn"),
+  importBtn: document.querySelector("#importBtn"),
   importInput: document.querySelector("#importInput"),
   exportDialog: document.querySelector("#exportDialog"),
   closeExportDialogBtn: document.querySelector("#closeExportDialogBtn"),
@@ -152,7 +152,9 @@ const els = {
   copyExportBtn: document.querySelector("#copyExportBtn"),
   copyImportLinkBtn: document.querySelector("#copyImportLinkBtn"),
   linkImportDialog: document.querySelector("#linkImportDialog"),
-  linkImportSummary: document.querySelector("#linkImportSummary"),
+  chooseJsonImportBtn: document.querySelector("#chooseJsonImportBtn"),
+  importLinkInput: document.querySelector("#importLinkInput"),
+  importLinkFeedback: document.querySelector("#importLinkFeedback"),
   confirmLinkImportBtn: document.querySelector("#confirmLinkImportBtn"),
   rejectLinkImportBtn: document.querySelector("#rejectLinkImportBtn"),
   cancelLinkImportBtn: document.querySelector("#cancelLinkImportBtn"),
@@ -470,9 +472,7 @@ function closeActiveDialog() {
       editingId = null;
     }
     if (activeDialog === els.linkImportDialog) {
-      pendingLinkImportRecords = null;
       clearImportTokenFromUrl();
-      clearCopiedImportToken();
     }
     return true;
   }
@@ -773,7 +773,6 @@ async function switchAccount(accountId, password = "") {
   resetFiltersForAccount();
   render();
   toggleAccountMenu(false);
-  detectLinkImport({ includeCopiedToken: true });
 }
 
 async function createAccount() {
@@ -812,7 +811,6 @@ async function createAccount() {
   setAccountFeedback(`已切换到「${account.name}」。`, "success");
   render();
   toggleAccountMenu(false);
-  detectLinkImport({ includeCopiedToken: true });
 }
 
 function renameAccount() {
@@ -1694,7 +1692,7 @@ function drawerHTML(record) {
 }
 
 function exportData() {
-  openDialog(els.exportDialog);
+  copyImportLink();
 }
 
 function exportJsonText() {
@@ -1845,7 +1843,8 @@ function buildImportPayload() {
 }
 
 async function buildImportLinkParts() {
-  const url = new URL(window.location.href);
+  const baseUrl = window.location.protocol === "file:" ? PUBLIC_IMPORT_BASE_URL : window.location.href;
+  const url = new URL(baseUrl);
   url.searchParams.delete("reset");
   url.hash = "";
   const token = await encodeImportToken(buildImportPayload());
@@ -1882,13 +1881,10 @@ function copyText(text) {
 async function copyImportLink() {
   try {
     const { link, token } = await buildImportLinkParts();
-    localStorage.setItem(COPIED_IMPORT_TOKEN_KEY, token);
     await copyText(link);
     showToast("已复制");
   } catch {
     showToast("复制失败");
-  } finally {
-    closeExportDialog();
   }
 }
 
@@ -1899,9 +1895,10 @@ function importData(file) {
     try {
       const parsed = JSON.parse(reader.result);
       applyImportedRecords(normalizeImportedRecords(parsed));
-      window.alert("导入完成。");
+      closeLinkImportDialog();
+      showToast("已导入");
     } catch {
-      window.alert("导入失败，请确认文件是本应用导出的 JSON。");
+      setImportLinkFeedback("导入失败，请确认文件是本应用导出的 JSON。", "error");
     } finally {
       els.importInput.value = "";
     }
@@ -1909,26 +1906,18 @@ function importData(file) {
   reader.readAsText(file);
 }
 
-function getImportTokenFromUrl() {
-  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-  const hashParams = new URLSearchParams(hash);
-  const hashToken = hashParams.get(LINK_IMPORT_PARAM);
-  if (hashToken) return hashToken;
-  return new URLSearchParams(window.location.search).get(LINK_IMPORT_PARAM);
+function openImportDialog() {
+  els.importLinkInput.value = "";
+  setImportLinkFeedback("");
+  openDialog(els.linkImportDialog);
+  hydrateIcons(els.linkImportDialog);
+  window.setTimeout(() => els.importLinkInput.focus({ preventScroll: true }), 80);
 }
 
-function getCopiedImportToken() {
-  try {
-    return localStorage.getItem(COPIED_IMPORT_TOKEN_KEY);
-  } catch {
-    return "";
-  }
-}
-
-function clearCopiedImportToken() {
-  try {
-    localStorage.removeItem(COPIED_IMPORT_TOKEN_KEY);
-  } catch {}
+function setImportLinkFeedback(message = "", tone = "info") {
+  els.importLinkFeedback.textContent = message;
+  els.importLinkFeedback.classList.toggle("is-error", tone === "error");
+  els.importLinkFeedback.classList.toggle("is-success", tone === "success");
 }
 
 function clearImportTokenFromUrl() {
@@ -1943,34 +1932,41 @@ function clearImportTokenFromUrl() {
 }
 
 function closeLinkImportDialog() {
-  pendingLinkImportRecords = null;
   closeDialog(els.linkImportDialog);
   clearImportTokenFromUrl();
-  clearCopiedImportToken();
 }
 
-function confirmLinkImport() {
-  if (!pendingLinkImportRecords) return;
-  applyImportedRecords(pendingLinkImportRecords);
-  pendingLinkImportRecords = null;
-  closeDialog(els.linkImportDialog);
-  clearImportTokenFromUrl();
-  clearCopiedImportToken();
-  showToast("已导入");
-}
-
-async function detectLinkImport(options = {}) {
-  const token = getImportTokenFromUrl() || (options.includeCopiedToken ? getCopiedImportToken() : "");
-  if (!token) return;
+function tokenFromImportInput(value = "") {
+  const text = value.trim();
+  if (!text) return "";
   try {
-    pendingLinkImportRecords = await decodeImportToken(decodeURIComponent(token));
-    els.linkImportSummary.textContent = `准备导入 ${pendingLinkImportRecords.length} 条记录`;
-    openDialog(els.linkImportDialog);
-    hydrateIcons(els.linkImportDialog);
+    const url = new URL(text);
+    const hash = url.hash.startsWith("#") ? url.hash.slice(1) : "";
+    const hashToken = hash ? new URLSearchParams(hash).get(LINK_IMPORT_PARAM) : "";
+    return hashToken || url.searchParams.get(LINK_IMPORT_PARAM) || text;
   } catch {
-    clearImportTokenFromUrl();
-    clearCopiedImportToken();
-    showToast("导入链接无效");
+    const hashStart = text.indexOf("#");
+    if (hashStart >= 0) {
+      const params = new URLSearchParams(text.slice(hashStart + 1));
+      return params.get(LINK_IMPORT_PARAM) || text;
+    }
+    return text.startsWith(`${LINK_IMPORT_PARAM}=`) ? new URLSearchParams(text).get(LINK_IMPORT_PARAM) || "" : text;
+  }
+}
+
+async function importFromLinkInput() {
+  const token = tokenFromImportInput(els.importLinkInput.value);
+  if (!token) {
+    setImportLinkFeedback("先粘贴导入链接。", "error");
+    els.importLinkInput.focus();
+    return;
+  }
+  try {
+    applyImportedRecords(await decodeImportToken(decodeURIComponent(token)));
+    closeLinkImportDialog();
+    showToast("已导入");
+  } catch {
+    setImportLinkFeedback("导入链接无效或已损坏。", "error");
   }
 }
 
@@ -2061,7 +2057,9 @@ function bindEvents() {
   els.saveExportBtn.addEventListener("click", saveExportData);
   els.copyExportBtn.addEventListener("click", copyExportData);
   els.copyImportLinkBtn.addEventListener("click", copyImportLink);
-  els.confirmLinkImportBtn.addEventListener("click", confirmLinkImport);
+  els.importBtn.addEventListener("click", openImportDialog);
+  els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
+  els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);
   els.rejectLinkImportBtn.addEventListener("click", closeLinkImportDialog);
   els.cancelLinkImportBtn.addEventListener("click", closeLinkImportDialog);
   els.importInput.addEventListener("change", (event) => importData(event.target.files[0]));
@@ -2304,7 +2302,6 @@ function init() {
     localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
     localStorage.removeItem(OVERDUE_MONTHS_KEY);
     localStorage.removeItem(MASTER_PASSWORD_KEY);
-    localStorage.removeItem(COPIED_IMPORT_TOKEN_KEY);
     window.history.replaceState(null, "", window.location.pathname);
   }
   hydrateIcons(document);
@@ -2317,7 +2314,6 @@ function init() {
   render();
   bindEvents();
   setView(activeView);
-  detectLinkImport();
   registerServiceWorker();
 }
 
