@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.0.1";
+const APP_VERSION = "2.0.2";
 const APP_UPDATED_AT = "2026.07.14";
 
 const STATUSES = [
@@ -15,6 +15,9 @@ const STATUSES = [
   { id: "已拒绝", label: "已拒绝" },
   { id: "offer", label: "offer" },
 ];
+const BOARD_STATUSES = ["待测评", "待笔试", "待面试", "待初筛", "offer", "已拒绝"]
+  .map((id) => STATUSES.find((status) => status.id === id))
+  .filter(Boolean);
 const CREATE_STATUSES = STATUSES.filter((status) => ["待初筛", "待笔试"].includes(status.id));
 const QUICK_FLOW_STATUSES = STATUSES.filter((status) => status.id !== "待初筛");
 
@@ -550,9 +553,8 @@ function closeActiveDialog() {
 
 function getFilteredRecords() {
   const query = normalize(els.searchInput.value);
-  const source = els.sourceFilter.value;
+  const source = els.sourceFilter?.value || "all";
   const city = els.cityFilter.value;
-  const weekStart = addDaysISO(todayISO(), -6);
   const list = records.filter((record) => {
     const haystack = normalize(
       [
@@ -658,6 +660,7 @@ function renderStatusFilters() {
 }
 
 function renderSourceFilter() {
+  if (!els.sourceFilter) return;
   const current = els.sourceFilter.value || "all";
   els.sourceFilter.innerHTML = [
     '<option value="all">全部来源</option>',
@@ -818,7 +821,7 @@ function resetFiltersForAccount() {
   activeStatus = "all";
   activeMetric = "all";
   els.searchInput.value = "";
-  els.sourceFilter.value = "all";
+  if (els.sourceFilter) els.sourceFilter.value = "all";
   els.cityFilter.value = "all";
   closeDrawer();
 }
@@ -1023,7 +1026,6 @@ function deleteAccount() {
 }
 
 function renderStats() {
-  const weekStart = addDaysISO(todayISO(), -6);
   const stats = [
     { label: "总投递", value: records.length, status: "all", metric: "all" },
     ...STATUSES.map((status) => ({
@@ -1032,18 +1034,6 @@ function renderStats() {
       status: status.id,
       metric: "all",
     })),
-    {
-      label: "本周新增",
-      value: records.filter((record) => record.appliedAt >= weekStart).length,
-      status: "all",
-      metric: "week",
-    },
-    {
-      label: "超过 7 天未更新",
-      value: records.filter(isStale).length,
-      status: "all",
-      metric: "stale",
-    },
     {
       label: `逾期预警`,
       value: records.filter(isUpdateOverdue).length,
@@ -1058,7 +1048,6 @@ function renderStats() {
         <button class="stat-card ${activeStatus === stat.status && activeMetric === stat.metric ? "active" : ""}" type="button" data-stat-status="${stat.status}" data-stat-metric="${stat.metric}">
           <span>${escapeHTML(stat.label)}</span>
           <strong>${stat.value}</strong>
-          <em>查看详情</em>
         </button>
       `,
     )
@@ -1092,7 +1081,7 @@ function renderDueList() {
 }
 
 function renderBoard(list) {
-  els.boardView.innerHTML = STATUSES.map((status) => {
+  els.boardView.innerHTML = BOARD_STATUSES.map((status) => {
     const columnRecords = list.filter((record) => record.status === status.id);
     return `
       <section class="kanban-column" data-drop-status="${status.id}" data-status="${status.id}">
@@ -2280,7 +2269,7 @@ function bindEvents() {
     submitSearch();
   });
   els.searchButton.addEventListener("click", submitSearch);
-  els.sourceFilter.addEventListener("change", render);
+  els.sourceFilter?.addEventListener("change", render);
   els.cityFilter.addEventListener("change", render);
   els.sortSelect.addEventListener("change", render);
   els.overdueMonthsInput.addEventListener("change", () => {

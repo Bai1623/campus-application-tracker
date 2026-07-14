@@ -836,16 +836,17 @@ label.icon-button:focus-within {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
 
 .stat-card {
   display: grid;
-  justify-items: start;
-  min-height: 92px;
-  padding: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 58px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--text);
@@ -866,21 +867,14 @@ label.icon-button:focus-within {
 
 .stat-card span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .stat-card strong {
   display: block;
-  margin-top: 8px;
-  font-size: 28px;
-}
-
-.stat-card em {
-  margin-top: 6px;
   color: var(--primary-strong);
-  font-size: 12px;
-  font-style: normal;
+  font-size: 24px;
   font-weight: 900;
 }
 
@@ -2234,10 +2228,6 @@ svg {
 
   .side-section {
     margin-top: 0;
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(3, minmax(110px, 1fr));
   }
 
   .insight-hero {
