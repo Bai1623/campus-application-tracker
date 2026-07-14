@@ -712,6 +712,13 @@ label.icon-button:focus-within {
   letter-spacing: 0.02em;
 }
 
+.version-info {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #7a4a1f;
+  background: var(--accent-soft);
+}
+
 .footer-link {
   min-height: 30px;
   padding: 0 10px;
@@ -1174,6 +1181,11 @@ label.icon-button:focus-within {
 .quick-status button:hover {
   border-color: var(--primary);
   color: var(--primary-strong);
+}
+
+.quick-status button:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .table-view {
@@ -2055,6 +2067,16 @@ tbody tr:hover {
   --status-bg: var(--blue-soft);
 }
 
+[data-status="待测评"] {
+  --status-color: #9333ea;
+  --status-bg: #f3e8ff;
+}
+
+[data-status="待笔试"] {
+  --status-color: #d97706;
+  --status-bg: #ffedd5;
+}
+
 [data-status="待面试"] {
   --status-color: var(--green);
   --status-bg: var(--green-soft);
@@ -2063,6 +2085,11 @@ tbody tr:hover {
 [data-status="已拒绝"] {
   --status-color: var(--red);
   --status-bg: var(--red-soft);
+}
+
+[data-status="offer"] {
+  --status-color: #0f766e;
+  --status-bg: #ccfbf1;
 }
 
 [data-status] .status-dot {

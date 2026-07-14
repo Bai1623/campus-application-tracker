@@ -4,12 +4,19 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
+const APP_VERSION = "2.0.1";
+const APP_UPDATED_AT = "2026.07.14";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
+  { id: "待测评", label: "待测评" },
+  { id: "待笔试", label: "待笔试" },
   { id: "待面试", label: "待面试" },
   { id: "已拒绝", label: "已拒绝" },
+  { id: "offer", label: "offer" },
 ];
+const CREATE_STATUSES = STATUSES.filter((status) => ["待初筛", "待笔试"].includes(status.id));
+const QUICK_FLOW_STATUSES = STATUSES.filter((status) => status.id !== "待初筛");
 
 const SOURCE_TYPES = ["官网", "公众号", "牛客", "Boss", "实习僧", "自定义"];
 const CITY_OPTIONS = [
@@ -192,6 +199,7 @@ const els = {
   importantReminderDialog: document.querySelector("#importantReminderDialog"),
   closeImportantReminderBtn: document.querySelector("#closeImportantReminderBtn"),
   importantReminderList: document.querySelector("#importantReminderList"),
+  appVersionInfo: document.querySelector("#appVersionInfo"),
   toast: document.querySelector("#toast"),
 };
 
@@ -1018,24 +1026,12 @@ function renderStats() {
   const weekStart = addDaysISO(todayISO(), -6);
   const stats = [
     { label: "总投递", value: records.length, status: "all", metric: "all" },
-    {
-      label: "待初筛",
-      value: records.filter((record) => record.status === "待初筛").length,
-      status: "待初筛",
+    ...STATUSES.map((status) => ({
+      label: status.label,
+      value: records.filter((record) => record.status === status.id).length,
+      status: status.id,
       metric: "all",
-    },
-    {
-      label: "待面试",
-      value: records.filter((record) => record.status === "待面试").length,
-      status: "待面试",
-      metric: "all",
-    },
-    {
-      label: "已拒绝",
-      value: records.filter((record) => record.status === "已拒绝").length,
-      status: "已拒绝",
-      metric: "all",
-    },
+    })),
     {
       label: "本周新增",
       value: records.filter((record) => record.appliedAt >= weekStart).length,
@@ -1155,11 +1151,10 @@ function recordCardHTML(record, variant = "") {
         <div class="meta-line">更新于 ${formatDate(record.updatedAt)} · 投递于 ${formatDate(record.appliedAt)}</div>
         ${record.note ? `<div class="meta-line">${escapeHTML(record.note)}</div>` : ""}
         <div class="quick-status" aria-label="快速切换状态">
-          ${STATUSES.filter((status) => status.id !== record.status)
-            .map(
-              (status) =>
-                `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
-            )
+          ${QUICK_FLOW_STATUSES.map(
+            (status) =>
+              `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}" ${status.id === record.status ? "disabled" : ""}>${status.label}</button>`,
+          )
             .join("")}
         </div>
       </div>
@@ -1179,7 +1174,6 @@ function renderTable(list) {
     </div>
   `;
 }
-
 function renderInsights() {
   const total = records.length;
   const activeRecords = records.filter((record) => record.status !== "已拒绝");
@@ -1388,6 +1382,11 @@ function render() {
   hydrateIcons(document);
 }
 
+function renderVersionInfo() {
+  if (!els.appVersionInfo) return;
+  els.appVersionInfo.textContent = `v${APP_VERSION} · 更新于 ${APP_UPDATED_AT}`;
+}
+
 function handleSearchInput() {
   render();
 }
@@ -1421,15 +1420,19 @@ function populateSelects() {
   const statusSelect = els.recordForm.elements.status;
   const sourceSelect = els.recordForm.elements.sourceType;
   const citySelect = els.recordForm.elements.cities;
-  statusSelect.innerHTML = STATUSES.map(
-    (status) => `<option value="${status.id}">${status.label}</option>`,
-  ).join("");
+  populateStatusSelect(statusSelect, CREATE_STATUSES);
   sourceSelect.innerHTML = SOURCE_TYPES.map(
     (source) => `<option value="${source}">${source}</option>`,
   ).join("");
   citySelect.innerHTML = [
     ...CITY_OPTIONS.map((city) => `<option value="${city}">${city}</option>`),
   ].join("");
+}
+
+function populateStatusSelect(select, statuses) {
+  select.innerHTML = statuses.map(
+    (status) => `<option value="${status.id}">${status.label}</option>`,
+  ).join("");
 }
 
 function openRecordDialog(record = null) {
@@ -1440,6 +1443,7 @@ function openRecordDialog(record = null) {
 
   const form = els.recordForm;
   form.reset();
+  populateStatusSelect(form.elements.status, record ? STATUSES : CREATE_STATUSES);
   form.elements.company.value = record?.company || "";
   form.elements.position.value = record?.position || "";
   const selectedCities = recordCities(record).slice(0, MAX_RECORD_CITIES);
@@ -1455,7 +1459,9 @@ function openRecordDialog(record = null) {
   if (form.elements.importance) {
     form.elements.importance.value = normalizeImportance(record);
   }
-  form.elements.importantReminderType.value = record?.importantReminderAt ? "deadline" : "none";
+  form.elements.importantReminderType.value = record
+    ? (record.importantReminderAt ? "deadline" : "none")
+    : "deadline";
   form.elements.importantReminderAt.value = toDateTimeLocalValue(record?.importantReminderAt || "");
   form.elements.importantReminderHours.value = "";
   form.elements.importantReminderNote.value = record?.importantReminderNote || "";
@@ -1756,11 +1762,10 @@ function drawerHTML(record) {
             <span data-icon="edit"></span>
             编辑
           </button>
-          ${STATUSES.filter((status) => status.id !== record.status)
-            .map(
-              (status) =>
-                `<button class="mini-button" type="button" data-quick-status="${status.id}" data-record-id="${record.id}">${status.label}</button>`,
-            )
+          ${QUICK_FLOW_STATUSES.map(
+            (status) =>
+              `<button class="mini-button" type="button" data-quick-status="${status.id}" data-record-id="${record.id}" ${status.id === record.status ? "disabled" : ""}>${status.label}</button>`,
+          )
             .join("")}
           <button class="danger-button" type="button" data-delete-id="${record.id}">
             <span data-icon="trash"></span>
@@ -2598,6 +2603,7 @@ function init() {
   loadRecords();
   configureRuntimeContext();
   exposeFallbackActions();
+  renderVersionInfo();
   render();
   bindEvents();
   setView(activeView);
