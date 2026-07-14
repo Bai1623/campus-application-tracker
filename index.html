@@ -232,6 +232,26 @@
               <option value="5">★★★★★ 5 星</option>
             </select>
           </label>
+          <label>
+            <span>重要提醒</span>
+            <select name="importantReminderType" required>
+              <option value="none">无</option>
+              <option value="deadline">选择截止日期时间</option>
+              <option value="relative">从现在起 N 小时</option>
+            </select>
+          </label>
+          <label id="importantReminderAtField" class="hidden">
+            <span>提醒时间</span>
+            <input name="importantReminderAt" type="datetime-local" />
+          </label>
+          <label id="importantReminderHoursField" class="hidden">
+            <span>未来多少小时</span>
+            <input name="importantReminderHours" type="number" min="1" max="8760" step="1" inputmode="numeric" placeholder="例如：48" />
+          </label>
+          <label id="importantReminderNoteField" class="wide hidden">
+            <span>提醒备注</span>
+            <input name="importantReminderNote" maxlength="120" placeholder="例如：在线测评、笔试、确认面试时间" />
+          </label>
           <label class="wide">
             <span>备注 / 本次更新</span>
             <textarea name="note" rows="4" maxlength="500" placeholder="记录你这次查询到的状态、面试时间或注意事项"></textarea>
@@ -393,6 +413,28 @@
         <p>
           本软件由 RicardoBAI 开发,如有疑问，请联系作者<a href="mailto:a1623444091@163.com">a1623444091@163.com</a>，代码已开源，地址：<a href="https://gitee.com/git_bai/autumn-recruitment-app" target="_blank" rel="noreferrer">https://gitee.com/git_bai/autumn-recruitment-app</a>
         </p>
+      </div>
+    </section>
+
+    <section id="importantReminderDialog" class="record-dialog reminder-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="importantReminderTitle">
+      <div class="dialog-head reminder-dialog-head">
+        <div>
+          <p class="eyebrow">Important Reminder</p>
+          <h3 id="importantReminderTitle">重要提醒</h3>
+        </div>
+        <button class="icon-button ghost" type="button" id="closeImportantReminderBtn" aria-label="关闭" title="关闭">
+          <span data-icon="x"></span>
+        </button>
+      </div>
+      <div class="reminder-dialog-body">
+        <div class="reminder-hero">
+          <span data-icon="alert"></span>
+          <div>
+            <strong>接下来 24 小时内有重要事项</strong>
+            <p>这些投递记录需要优先处理，比如在线测评、笔试、确认面试时间。</p>
+          </div>
+        </div>
+        <div id="importantReminderList" class="reminder-list"></div>
       </div>
     </section>
 

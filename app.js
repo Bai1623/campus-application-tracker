@@ -66,6 +66,7 @@ const CITY_OPTIONS = [
 const STALE_DAYS = 7;
 const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
+const REMINDER_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
@@ -97,6 +98,8 @@ const icons = {
     '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"></rect><rect x="4" y="4" width="11" height="11" rx="2"></rect></svg>',
   share:
     '<svg viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><path d="M12 16V3"></path><path d="m7 8 5-5 5 5"></path></svg>',
+  alert:
+    '<svg viewBox="0 0 24 24"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path></svg>',
 };
 
 let records = [];
@@ -180,9 +183,15 @@ const els = {
   formError: document.querySelector("#formError"),
   sourceDetailField: document.querySelector("#sourceDetailField"),
   sourceDetailLabel: document.querySelector("#sourceDetailLabel"),
+  importantReminderAtField: document.querySelector("#importantReminderAtField"),
+  importantReminderHoursField: document.querySelector("#importantReminderHoursField"),
+  importantReminderNoteField: document.querySelector("#importantReminderNoteField"),
   drawerBackdrop: document.querySelector("#drawerBackdrop"),
   detailDrawer: document.querySelector("#detailDrawer"),
   modalBackdrop: document.querySelector("#modalBackdrop"),
+  importantReminderDialog: document.querySelector("#importantReminderDialog"),
+  closeImportantReminderBtn: document.querySelector("#closeImportantReminderBtn"),
+  importantReminderList: document.querySelector("#importantReminderList"),
   toast: document.querySelector("#toast"),
 };
 
@@ -219,6 +228,55 @@ function monthsBetween(startISO, endISO = todayISO()) {
 function formatDate(dateISO) {
   if (!dateISO) return "未设置";
   return dateISO.replaceAll("-", ".");
+}
+
+function toDateTimeLocalValue(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function localDateTimeToISO(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function formatDateTime(value = "") {
+  if (!value) return "未设置";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未设置";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function reminderDeadline(record) {
+  if (!record?.importantReminderAt || record.importantReminderType === "none") return null;
+  const date = new Date(record.importantReminderAt);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isReminderActive(record, now = new Date()) {
+  const deadline = reminderDeadline(record);
+  if (!deadline) return false;
+  const diff = deadline.getTime() - now.getTime();
+  return diff >= 0 && diff <= REMINDER_ALERT_WINDOW_MS;
+}
+
+function reminderRemainingText(record, now = new Date()) {
+  const deadline = reminderDeadline(record);
+  if (!deadline) return "";
+  const diff = Math.max(0, deadline.getTime() - now.getTime());
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.ceil((diff % 3600000) / 60000);
+  if (hours <= 0) return `${Math.max(1, minutes)} 分钟内`;
+  return minutes >= 60 ? `${hours + 1} 小时内` : `${hours} 小时 ${minutes} 分钟内`;
 }
 
 function escapeHTML(value = "") {
@@ -785,6 +843,7 @@ async function switchAccount(accountId, password = "") {
   resetFiltersForAccount();
   render();
   toggleAccountMenu(false);
+  window.setTimeout(showImportantReminderDialog, 180);
 }
 
 async function createAccount() {
@@ -1062,11 +1121,15 @@ function recordCardHTML(record, variant = "") {
   const updateOverdue = isUpdateOverdue(record);
   const importance = normalizeImportance(record);
   const pinned = Boolean(record.pinnedAt);
+  const activeReminder = isReminderActive(record);
   const tags = [
     pinned ? `<span class="tag pin-tag">已置顶</span>` : "",
     `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
     `<span class="tag city-tag">${escapeHTML(cityText(record))}</span>`,
     `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
+    record.importantReminderAt
+      ? `<span class="tag ${activeReminder ? "danger" : "reminder-tag"}">重要提醒 · ${formatDateTime(record.importantReminderAt)}</span>`
+      : "",
     updateOverdue ? `<span class="tag danger">逾期预警 · ${monthsBetween(record.updatedAt)} 个月未更新</span>` : "",
     stale ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : "",
     due ? `<span class="tag warn">今日检查</span>` : "",
@@ -1392,8 +1455,13 @@ function openRecordDialog(record = null) {
   if (form.elements.importance) {
     form.elements.importance.value = normalizeImportance(record);
   }
+  form.elements.importantReminderType.value = record?.importantReminderAt ? "deadline" : "none";
+  form.elements.importantReminderAt.value = toDateTimeLocalValue(record?.importantReminderAt || "");
+  form.elements.importantReminderHours.value = "";
+  form.elements.importantReminderNote.value = record?.importantReminderNote || "";
   form.elements.note.value = record?.note || "";
   updateSourceLabel();
+  updateImportantReminderFields();
   openDialog(els.recordDialog);
 }
 
@@ -1412,6 +1480,19 @@ function updateSourceLabel() {
   els.recordForm.elements.sourceDetail.placeholder = "https://example.com/recruit";
   if (!showUrl) {
     els.recordForm.elements.sourceDetail.value = "";
+  }
+}
+
+function updateImportantReminderFields() {
+  const type = els.recordForm.elements.importantReminderType.value;
+  const enabled = type !== "none";
+  els.importantReminderAtField.classList.toggle("hidden", type !== "deadline");
+  els.importantReminderHoursField.classList.toggle("hidden", type !== "relative");
+  els.importantReminderNoteField.classList.toggle("hidden", !enabled);
+  if (!enabled) {
+    els.recordForm.elements.importantReminderAt.value = "";
+    els.recordForm.elements.importantReminderHours.value = "";
+    els.recordForm.elements.importantReminderNote.value = "";
   }
 }
 
@@ -1436,6 +1517,14 @@ function formToRecord(base = null) {
   const now = todayISO();
   const note = data.note.trim();
   const cities = Array.from(form.elements.cities.selectedOptions).map((option) => option.value);
+  const reminderType = data.importantReminderType || "none";
+  const relativeHours = Number(data.importantReminderHours || 0);
+  const importantReminderAt =
+    reminderType === "deadline"
+      ? localDateTimeToISO(data.importantReminderAt)
+      : reminderType === "relative" && relativeHours > 0
+        ? new Date(Date.now() + relativeHours * 3600000).toISOString()
+        : "";
 
   return {
     id: base?.id || uid(),
@@ -1450,6 +1539,9 @@ function formToRecord(base = null) {
     nextCheckAt: data.nextCheckAt || "",
     importance: data.importance || normalizeImportance(base),
     pinnedAt: base?.pinnedAt || "",
+    importantReminderType: importantReminderAt ? "deadline" : "none",
+    importantReminderAt,
+    importantReminderNote: importantReminderAt ? (data.importantReminderNote || "").trim() : "",
     note,
     history: base?.history?.length
       ? [...base.history]
@@ -1471,6 +1563,13 @@ function validateRecord(record) {
   if (cities.length > MAX_RECORD_CITIES) return `城市最多选择 ${MAX_RECORD_CITIES} 个。`;
   if (!SOURCE_TYPES.includes(record.sourceType)) return "来源类型必须选择。";
   if (!record.appliedAt || !record.updatedAt) return "投递日期和更新时间必须填写。";
+  const reminderType = els.recordForm.elements.importantReminderType.value;
+  if (!["none", "deadline", "relative"].includes(reminderType)) return "重要提醒必须选择。";
+  if (reminderType === "deadline" && !record.importantReminderAt) return "请选择重要提醒时间。";
+  if (reminderType === "relative") {
+    const hours = Number(els.recordForm.elements.importantReminderHours.value || 0);
+    if (!Number.isFinite(hours) || hours <= 0) return "请填写从现在起多少小时。";
+  }
   if (record.sourceType === "自定义") {
     if (!record.sourceDetail) return "自定义来源需要填写网址。";
     try {
@@ -1626,6 +1725,7 @@ function drawerHTML(record) {
             <span class="tag status-badge">${escapeHTML(record.status)}</span>
             <span class="importance-badge">${stars(importance)}</span>
             ${updateOverdue ? `<span class="tag danger">逾期预警 · ${monthsBetween(record.updatedAt)} 个月未更新</span>` : ""}
+            ${record.importantReminderAt ? `<span class="tag ${isReminderActive(record) ? "danger" : "reminder-tag"}">重要提醒 · ${formatDateTime(record.importantReminderAt)}</span>` : ""}
             ${isDue(record) ? '<span class="tag warn">今日待检查</span>' : ""}
             ${isStale(record) ? `<span class="tag warn">${daysBetween(record.updatedAt)} 天未更新</span>` : ""}
           </div>
@@ -1646,6 +1746,7 @@ function drawerHTML(record) {
           <span>投递日期</span><strong>${formatDate(record.appliedAt)}</strong>
           <span>更新时间</span><strong>${formatDate(record.updatedAt)}</strong>
           <span>下次检查</span><strong>${formatDate(record.nextCheckAt)}</strong>
+          <span>重要提醒</span><strong>${record.importantReminderAt ? `${formatDateTime(record.importantReminderAt)}${record.importantReminderNote ? ` · ${escapeHTML(record.importantReminderNote)}` : ""}` : "无"}</strong>
         </div>
       </section>
       <section class="detail-section">
@@ -1719,6 +1820,9 @@ function normalizeImportedRecords(input) {
     nextCheckAt: record.nextCheckAt || "",
     importance: normalizeImportance(record),
     pinnedAt: record.pinnedAt || "",
+    importantReminderType: record.importantReminderAt ? "deadline" : "none",
+    importantReminderAt: record.importantReminderAt || "",
+    importantReminderNote: record.importantReminderNote || "",
     note: record.note || "",
     history: Array.isArray(record.history) ? record.history : [],
   }));
@@ -2054,6 +2158,37 @@ function closeAuthorDialog() {
   closeDialog(els.authorDialog);
 }
 
+function upcomingImportantReminders() {
+  const now = new Date();
+  return records
+    .filter((record) => record.status !== "已拒绝" && isReminderActive(record, now))
+    .sort((a, b) => new Date(a.importantReminderAt) - new Date(b.importantReminderAt));
+}
+
+function closeImportantReminderDialog() {
+  closeDialog(els.importantReminderDialog);
+}
+
+function showImportantReminderDialog() {
+  if (els.importantReminderDialog.classList.contains("is-open")) return;
+  const list = upcomingImportantReminders();
+  if (!list.length) return;
+  els.importantReminderList.innerHTML = list
+    .map(
+      (record) => `
+        <button class="reminder-item" type="button" data-reminder-open-id="${record.id}">
+          <span class="reminder-time">${escapeHTML(reminderRemainingText(record))}</span>
+          <strong>${escapeHTML(record.company)}</strong>
+          <em>${escapeHTML(record.position || "未填写岗位")}</em>
+          <span>${formatDateTime(record.importantReminderAt)}${record.importantReminderNote ? ` · ${escapeHTML(record.importantReminderNote)}` : ""}</span>
+        </button>
+      `,
+    )
+    .join("");
+  openDialog(els.importantReminderDialog);
+  hydrateIcons(els.importantReminderDialog);
+}
+
 async function copyShareLink() {
   try {
     await navigator.clipboard.writeText(els.shareUrl.value);
@@ -2130,6 +2265,7 @@ function bindEvents() {
   els.closeMobileDialogBtn.addEventListener("click", closeMobileDialog);
   els.authorContactBtn.addEventListener("click", openAuthorDialog);
   els.closeAuthorDialogBtn.addEventListener("click", closeAuthorDialog);
+  els.closeImportantReminderBtn.addEventListener("click", closeImportantReminderDialog);
   els.copyLinkBtn.addEventListener("click", copyShareLink);
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", handleSearchInput);
@@ -2153,6 +2289,7 @@ function bindEvents() {
   });
   els.recordForm.addEventListener("submit", saveFromForm);
   els.recordForm.elements.sourceType.addEventListener("change", updateSourceLabel);
+  els.recordForm.elements.importantReminderType.addEventListener("change", updateImportantReminderFields);
   els.recordForm.elements.cities.addEventListener("change", enforceCitySelectionLimit);
   els.closeDialogBtn.addEventListener("click", closeRecordDialog);
   els.cancelDialogBtn.addEventListener("click", closeRecordDialog);
@@ -2184,6 +2321,7 @@ function bindEvents() {
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
+    const reminderOpenTarget = event.target.closest("[data-reminder-open-id]");
 
     if (confirmSwitchTarget) {
       const accountId = confirmSwitchTarget.dataset.confirmSwitch;
@@ -2291,6 +2429,12 @@ function bindEvents() {
 
     if (closeTarget) {
       closeDrawer();
+      return;
+    }
+
+    if (reminderOpenTarget) {
+      closeImportantReminderDialog();
+      openDrawer(reminderOpenTarget.dataset.reminderOpenId);
       return;
     }
 
@@ -2425,6 +2569,12 @@ function bindEvents() {
       closeDrawer();
     }
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (document.querySelector(".record-dialog.is-open")) return;
+    window.setTimeout(showImportantReminderDialog, 180);
+  });
 }
 
 function init() {
@@ -2452,6 +2602,7 @@ function init() {
   bindEvents();
   setView(activeView);
   registerServiceWorker();
+  window.setTimeout(showImportantReminderDialog, 260);
 }
 
 init();
