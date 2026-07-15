@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.0.3";
+const APP_VERSION = "2.0.4";
 const APP_UPDATED_AT = "2026.07.15";
 
 const STATUSES = [
@@ -77,7 +77,8 @@ const CITY_OPTIONS = [
 const STALE_DAYS = 7;
 const DEFAULT_OVERDUE_MONTHS = 2;
 const MAX_RECORD_CITIES = 3;
-const REMINDER_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const REMINDER_ALERT_WINDOW_MS = 12 * 60 * 60 * 1000;
+const DEADLINE_REQUIRED_STATUSES = new Set(["待测评", "待笔试", "待面试"]);
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
@@ -127,6 +128,8 @@ let pendingDeleteAccountId = "";
 let masterPasswordUnlocked = false;
 let toastTimer = null;
 let swipeState = null;
+let actionConfirmResolve = null;
+let statusDeadlineResolve = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -203,6 +206,19 @@ const els = {
   importantReminderDialog: document.querySelector("#importantReminderDialog"),
   closeImportantReminderBtn: document.querySelector("#closeImportantReminderBtn"),
   importantReminderList: document.querySelector("#importantReminderList"),
+  actionConfirmDialog: document.querySelector("#actionConfirmDialog"),
+  actionConfirmTitle: document.querySelector("#actionConfirmTitle"),
+  actionConfirmMessage: document.querySelector("#actionConfirmMessage"),
+  actionCancelBtn: document.querySelector("#actionCancelBtn"),
+  actionConfirmBtn: document.querySelector("#actionConfirmBtn"),
+  statusDeadlineDialog: document.querySelector("#statusDeadlineDialog"),
+  statusDeadlineTitle: document.querySelector("#statusDeadlineTitle"),
+  statusDeadlineMessage: document.querySelector("#statusDeadlineMessage"),
+  statusDeadlineInput: document.querySelector("#statusDeadlineInput"),
+  statusDeadlineNoteInput: document.querySelector("#statusDeadlineNoteInput"),
+  statusDeadlineError: document.querySelector("#statusDeadlineError"),
+  statusDeadlineCancelBtn: document.querySelector("#statusDeadlineCancelBtn"),
+  statusDeadlineConfirmBtn: document.querySelector("#statusDeadlineConfirmBtn"),
   appVersionInfo: document.querySelector("#appVersionInfo"),
   toast: document.querySelector("#toast"),
 };
@@ -572,6 +588,14 @@ function closeDialog(dialog) {
 function closeActiveDialog() {
   const activeDialog = document.querySelector(".record-dialog.is-open");
   if (activeDialog) {
+    if (activeDialog === els.actionConfirmDialog && actionConfirmResolve) {
+      actionConfirmResolve(false);
+      actionConfirmResolve = null;
+    }
+    if (activeDialog === els.statusDeadlineDialog && statusDeadlineResolve) {
+      statusDeadlineResolve(null);
+      statusDeadlineResolve = null;
+    }
     closeDialog(activeDialog);
     if (activeDialog === els.recordDialog) {
       editingId = null;
@@ -582,6 +606,84 @@ function closeActiveDialog() {
     return true;
   }
   return false;
+}
+
+function askActionConfirm({
+  title = "确认操作",
+  message = "确认继续吗？",
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+  tone = "default",
+} = {}) {
+  if (actionConfirmResolve) {
+    actionConfirmResolve(false);
+    actionConfirmResolve = null;
+  }
+  els.actionConfirmDialog.dataset.tone = tone;
+  els.actionConfirmTitle.textContent = title;
+  els.actionConfirmMessage.textContent = message;
+  els.actionConfirmBtn.innerHTML = `<span data-icon="check"></span>${escapeHTML(confirmLabel)}`;
+  els.actionCancelBtn.textContent = cancelLabel;
+  openDialog(els.actionConfirmDialog);
+  hydrateIcons(els.actionConfirmDialog);
+  return new Promise((resolve) => {
+    actionConfirmResolve = resolve;
+  });
+}
+
+function resolveActionConfirm(value) {
+  if (!actionConfirmResolve) return;
+  actionConfirmResolve(value);
+  actionConfirmResolve = null;
+  closeDialog(els.actionConfirmDialog);
+}
+
+function askStatusDeadline(status, record) {
+  if (statusDeadlineResolve) {
+    statusDeadlineResolve(null);
+    statusDeadlineResolve = null;
+  }
+  const defaultNote = status === "待测评"
+    ? "完成在线测评"
+    : status === "待笔试"
+      ? "参加笔试"
+      : "参加面试";
+  els.statusDeadlineTitle.textContent = `设置${status}截止时间`;
+  els.statusDeadlineMessage.textContent = `「${record.company || "这条记录"}」将流转到「${status}」，请设置截止时间。截止前 12 小时内打开 App 会强提醒。`;
+  els.statusDeadlineInput.value = record.importantReminderAt ? toDateTimeLocalValue(record.importantReminderAt) : "";
+  els.statusDeadlineNoteInput.value = record.importantReminderNote || defaultNote;
+  els.statusDeadlineError.textContent = "";
+  openDialog(els.statusDeadlineDialog);
+  hydrateIcons(els.statusDeadlineDialog);
+  window.setTimeout(() => els.statusDeadlineInput.focus(), 80);
+  return new Promise((resolve) => {
+    statusDeadlineResolve = resolve;
+  });
+}
+
+function resolveStatusDeadline(value) {
+  if (!statusDeadlineResolve) return;
+  statusDeadlineResolve(value);
+  statusDeadlineResolve = null;
+  closeDialog(els.statusDeadlineDialog);
+}
+
+function confirmStatusDeadline() {
+  const deadlineISO = localDateTimeToISO(els.statusDeadlineInput.value);
+  if (!deadlineISO) {
+    els.statusDeadlineError.textContent = "请先选择截止日期时间。";
+    els.statusDeadlineInput.focus();
+    return;
+  }
+  if (new Date(deadlineISO).getTime() <= Date.now()) {
+    els.statusDeadlineError.textContent = "截止时间需要晚于当前时间。";
+    els.statusDeadlineInput.focus();
+    return;
+  }
+  resolveStatusDeadline({
+    deadlineISO,
+    note: els.statusDeadlineNoteInput.value.trim(),
+  });
 }
 
 function getFilteredRecords() {
@@ -1182,6 +1284,25 @@ function reapplyCardHTML(record) {
   `;
 }
 
+function quickStatusButtonsHTML(record, buttonClass = "") {
+  const statuses = record.status === "已拒绝"
+    ? [
+        ...QUICK_FLOW_STATUSES.filter((status) => status.id !== "已拒绝"),
+        STATUSES.find((status) => status.id === "待初筛"),
+      ].filter(Boolean)
+    : QUICK_FLOW_STATUSES;
+  const statusButtons = statuses
+    .map(
+      (status) =>
+        `<button ${buttonClass ? `class="${buttonClass}"` : ""} type="button" data-quick-status="${status.id}" data-record-id="${record.id}" ${status.id === record.status ? "disabled" : ""}>${status.label}</button>`,
+    )
+    .join("");
+  const reapplyButton = record.status === "已拒绝" && !record.canReapply
+    ? `<button ${buttonClass ? `class="${buttonClass}"` : ""} type="button" data-mark-reapply-id="${record.id}">${REAPPLY_STATUS.label}</button>`
+    : "";
+  return `${statusButtons}${reapplyButton}`;
+}
+
 function recordCardHTML(record, variant = "") {
   const stale = isStale(record);
   const due = isDue(record);
@@ -1222,11 +1343,7 @@ function recordCardHTML(record, variant = "") {
         <div class="meta-line">更新于 ${formatDate(record.updatedAt)} · 投递于 ${formatDate(record.appliedAt)}</div>
         ${record.note ? `<div class="meta-line">${escapeHTML(record.note)}</div>` : ""}
         <div class="quick-status" aria-label="快速切换状态">
-          ${QUICK_FLOW_STATUSES.map(
-            (status) =>
-              `<button type="button" data-quick-status="${status.id}" data-record-id="${record.id}" ${status.id === record.status ? "disabled" : ""}>${status.label}</button>`,
-          )
-            .join("")}
+          ${quickStatusButtonsHTML(record)}
         </div>
       </div>
     </article>
@@ -1640,10 +1757,14 @@ function formToRecord(base = null) {
   };
 }
 
-function applyStatusMetrics(record, status) {
+async function applyStatusMetrics(record, status, forceDeadline = false) {
   const clickedAt = new Date().toISOString();
   if (!record.createdAt) {
     record.createdAt = recordCreatedAt(record);
+  }
+  if (DEADLINE_REQUIRED_STATUSES.has(status)) {
+    const deadlineReady = await ensureStatusDeadline(record, status, forceDeadline);
+    if (!deadlineReady) return false;
   }
   if (status === "待测评") {
     record.assessmentAt = clickedAt;
@@ -1652,13 +1773,31 @@ function applyStatusMetrics(record, status) {
   if (status === "已拒绝") {
     record.rejectedAt = clickedAt;
     record.rejectedDurationMs = durationFromCreated(record, clickedAt);
-    const canReapply = window.confirm("这家公司后续还能再次投递吗？");
+    const canReapply = await askActionConfirm({
+      title: "是否加入可再次投递？",
+      message: `「${record.company || "这家公司"}」已经标记为已拒绝。后续还能再次投递吗？`,
+      confirmLabel: "是，加入",
+      cancelLabel: "否，保持已拒绝",
+      tone: "reapply",
+    });
     record.canReapply = canReapply;
     record.reapplyRecord = canReapply ? reapplySnapshot(record) : null;
-    return;
+    return true;
   }
   record.canReapply = false;
   record.reapplyRecord = null;
+  return true;
+}
+
+async function ensureStatusDeadline(record, status, force = false) {
+  if (!DEADLINE_REQUIRED_STATUSES.has(status)) return true;
+  if (!force && record.importantReminderAt) return true;
+  const deadline = await askStatusDeadline(status, record);
+  if (!deadline) return false;
+  record.importantReminderType = "deadline";
+  record.importantReminderAt = deadline.deadlineISO;
+  record.importantReminderNote = deadline.note || `${status}截止时间`;
+  return true;
 }
 
 function validateRecord(record) {
@@ -1683,6 +1822,9 @@ function validateRecord(record) {
       return "来源网址格式不太对。";
     }
   }
+  if (DEADLINE_REQUIRED_STATUSES.has(record.status) && !record.importantReminderAt) {
+    return `${record.status} 需要设置截止时间。`;
+  }
   return "";
 }
 
@@ -1697,10 +1839,14 @@ function hasPossibleDuplicate(candidate) {
   });
 }
 
-function saveFromForm(event) {
+async function saveFromForm(event) {
   event.preventDefault();
   const existing = editingId ? records.find((record) => record.id === editingId) : null;
   const next = formToRecord(existing);
+  if (DEADLINE_REQUIRED_STATUSES.has(next.status) && !next.importantReminderAt) {
+    const deadlineReady = await ensureStatusDeadline(next, next.status, true);
+    if (!deadlineReady) return;
+  }
   const error = validateRecord(next);
 
   if (error) {
@@ -1715,7 +1861,8 @@ function saveFromForm(event) {
 
   if (existing) {
     if (existing.status !== next.status) {
-      applyStatusMetrics(next, next.status);
+      const canContinue = await applyStatusMetrics(next, next.status);
+      if (!canContinue) return;
     }
     const meaningfulUpdate =
       existing.status !== next.status ||
@@ -1740,10 +1887,11 @@ function saveFromForm(event) {
   if (selectedId === next.id) openDrawer(next.id);
 }
 
-function updateRecordStatus(id, status, note = "快速切换状态") {
+async function updateRecordStatus(id, status, note = "快速切换状态") {
   const record = records.find((item) => item.id === id);
   if (!record || record.status === status) return;
-  applyStatusMetrics(record, status);
+  const canContinue = await applyStatusMetrics(record, status, true);
+  if (!canContinue) return;
   record.status = status;
   record.updatedAt = todayISO();
   record.note = note;
@@ -1758,6 +1906,28 @@ function updateRecordStatus(id, status, note = "快速切换状态") {
   saveRecords();
   render();
   if (selectedId === id) openDrawer(id);
+}
+
+function markRecordReapply(id) {
+  const record = records.find((item) => item.id === id);
+  if (!record || record.status !== "已拒绝") return;
+  if (!record.rejectedAt) {
+    record.rejectedAt = new Date().toISOString();
+    record.rejectedDurationMs = durationFromCreated(record, record.rejectedAt);
+  }
+  record.canReapply = true;
+  record.reapplyRecord = reapplySnapshot(record);
+  record.history.unshift({
+    id: uid(),
+    status: REAPPLY_STATUS.id,
+    updatedAt: todayISO(),
+    note: "标记为可再次投递",
+    rejectedAt: record.rejectedAt,
+  });
+  saveRecords();
+  render();
+  if (selectedId === id) openDrawer(id);
+  showToast("已加入可再次投递");
 }
 
 function toggleRecordPin(id) {
@@ -1876,11 +2046,7 @@ function drawerHTML(record) {
             <span data-icon="edit"></span>
             编辑
           </button>
-          ${QUICK_FLOW_STATUSES.map(
-            (status) =>
-              `<button class="mini-button" type="button" data-quick-status="${status.id}" data-record-id="${record.id}" ${status.id === record.status ? "disabled" : ""}>${status.label}</button>`,
-          )
-            .join("")}
+          ${quickStatusButtonsHTML(record, "mini-button")}
           <button class="danger-button" type="button" data-delete-id="${record.id}">
             <span data-icon="trash"></span>
             删除
@@ -2305,7 +2471,7 @@ function showImportantReminderDialog() {
         <button class="reminder-item" type="button" data-reminder-open-id="${record.id}">
           <span class="reminder-time">${escapeHTML(reminderRemainingText(record))}</span>
           <strong>${escapeHTML(record.company)}</strong>
-          <em>${escapeHTML(record.position || "未填写岗位")}</em>
+          <em>${escapeHTML(record.status)} · ${escapeHTML(record.position || "未填写岗位")}</em>
           <span>${formatDateTime(record.importantReminderAt)}${record.importantReminderNote ? ` · ${escapeHTML(record.importantReminderNote)}` : ""}</span>
         </button>
       `,
@@ -2392,6 +2558,10 @@ function bindEvents() {
   els.authorContactBtn.addEventListener("click", openAuthorDialog);
   els.closeAuthorDialogBtn.addEventListener("click", closeAuthorDialog);
   els.closeImportantReminderBtn.addEventListener("click", closeImportantReminderDialog);
+  els.actionCancelBtn.addEventListener("click", () => resolveActionConfirm(false));
+  els.actionConfirmBtn.addEventListener("click", () => resolveActionConfirm(true));
+  els.statusDeadlineCancelBtn.addEventListener("click", () => resolveStatusDeadline(null));
+  els.statusDeadlineConfirmBtn.addEventListener("click", confirmStatusDeadline);
   els.copyLinkBtn.addEventListener("click", copyShareLink);
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", handleSearchInput);
@@ -2427,7 +2597,7 @@ function bindEvents() {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
 
-  document.addEventListener("click", (event) => {
+  document.addEventListener("click", async (event) => {
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
     const saveAccountNameTarget = event.target.closest("#saveAccountNameBtn");
@@ -2444,6 +2614,7 @@ function bindEvents() {
     const pinTarget = event.target.closest("[data-pin-id]");
     const dueCheckedTarget = event.target.closest("[data-due-checked-id]");
     const quickTarget = event.target.closest("[data-quick-status]");
+    const markReapplyTarget = event.target.closest("[data-mark-reapply-id]");
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
@@ -2510,11 +2681,17 @@ function bindEvents() {
 
     if (quickTarget) {
       event.stopPropagation();
-      updateRecordStatus(
+      await updateRecordStatus(
         quickTarget.dataset.recordId,
         quickTarget.dataset.quickStatus,
         "快速切换状态",
       );
+      return;
+    }
+
+    if (markReapplyTarget) {
+      event.stopPropagation();
+      markRecordReapply(markReapplyTarget.dataset.markReapplyId);
       return;
     }
 

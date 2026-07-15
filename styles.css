@@ -1611,7 +1611,13 @@ tbody tr:hover {
 }
 
 .reminder-dialog {
-  width: min(620px, calc(100vw - 28px));
+  width: min(900px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+}
+
+.action-dialog,
+.deadline-dialog {
+  width: min(520px, calc(100vw - 28px));
 }
 
 .author-dialog-head {
@@ -1629,6 +1635,18 @@ tbody tr:hover {
 .reminder-dialog-head {
   background:
     linear-gradient(135deg, rgba(254, 226, 226, 0.96), rgba(255, 237, 213, 0.72)),
+    var(--surface);
+}
+
+.action-dialog-head {
+  background:
+    linear-gradient(135deg, rgba(207, 250, 254, 0.92), rgba(255, 237, 213, 0.62)),
+    var(--surface);
+}
+
+.deadline-dialog-head {
+  background:
+    linear-gradient(135deg, rgba(219, 234, 254, 0.94), rgba(204, 251, 241, 0.7)),
     var(--surface);
 }
 
@@ -1928,6 +1946,55 @@ tbody tr:hover {
 
 .link-import-feedback.is-success {
   color: var(--green);
+}
+
+.action-dialog-body,
+.deadline-dialog-body {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 6px;
+}
+
+.action-dialog-body {
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+}
+
+.action-dialog-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 16px;
+  color: #0e7490;
+  background: #cffafe;
+}
+
+.action-dialog[data-tone="reapply"] .action-dialog-icon {
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.action-dialog-body p,
+.deadline-dialog-body p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.deadline-dialog-body label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.deadline-dialog-body input {
+  height: 42px;
+  padding: 0 11px;
 }
 
 .reminder-dialog-body {

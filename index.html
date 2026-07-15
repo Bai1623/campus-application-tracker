@@ -156,7 +156,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.0.3 · 更新于 2026.07.15</span>
+          <span id="appVersionInfo" class="version-info">v2.0.4 · 更新于 2026.07.15</span>
           <button id="authorContactBtn" class="footer-link" type="button">联系作者</button>
         </footer>
       </main>
@@ -424,11 +424,61 @@
         <div class="reminder-hero">
           <span data-icon="alert"></span>
           <div>
-            <strong>接下来 24 小时内有重要事项</strong>
+            <strong>接下来 12 小时内有重要事项</strong>
             <p>这些投递记录需要优先处理，比如在线测评、笔试、确认面试时间。</p>
           </div>
         </div>
         <div id="importantReminderList" class="reminder-list"></div>
+      </div>
+    </section>
+
+    <section id="actionConfirmDialog" class="record-dialog action-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="actionConfirmTitle">
+      <div class="dialog-head action-dialog-head">
+        <div>
+          <p class="eyebrow">Status Flow</p>
+          <h3 id="actionConfirmTitle">确认操作</h3>
+        </div>
+      </div>
+      <div class="action-dialog-body">
+        <div class="action-dialog-icon">
+          <span data-icon="alert"></span>
+        </div>
+        <p id="actionConfirmMessage">确认继续吗？</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="text-button" type="button" id="actionCancelBtn">取消</button>
+        <button class="primary-button" type="button" id="actionConfirmBtn">
+          <span data-icon="check"></span>
+          确认
+        </button>
+      </div>
+    </section>
+
+    <section id="statusDeadlineDialog" class="record-dialog deadline-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="statusDeadlineTitle">
+      <div class="dialog-head deadline-dialog-head">
+        <div>
+          <p class="eyebrow">Required Deadline</p>
+          <h3 id="statusDeadlineTitle">设置截止时间</h3>
+        </div>
+      </div>
+      <div class="deadline-dialog-body">
+        <p id="statusDeadlineMessage">这个状态需要设置一个截止时间，用来触发强提醒。</p>
+        <label>
+          <span>截止日期时间</span>
+          <input id="statusDeadlineInput" type="datetime-local" />
+        </label>
+        <label>
+          <span>提醒备注</span>
+          <input id="statusDeadlineNoteInput" maxlength="120" placeholder="例如：在线测评、笔试、面试确认" />
+        </label>
+        <p id="statusDeadlineError" class="form-error" role="alert"></p>
+      </div>
+      <div class="dialog-actions">
+        <button class="text-button" type="button" id="statusDeadlineCancelBtn">取消</button>
+        <button class="primary-button" type="button" id="statusDeadlineConfirmBtn">
+          <span data-icon="check"></span>
+          保存截止时间
+        </button>
       </div>
     </section>
 
