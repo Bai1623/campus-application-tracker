@@ -1140,6 +1140,11 @@ label.icon-button:focus-within {
   background: #ffedd5;
 }
 
+.reapply-tag {
+  color: #0e7490;
+  background: #cffafe;
+}
+
 .tag.city-tag {
   color: var(--blue);
   background: var(--blue-soft);
@@ -2084,6 +2089,11 @@ tbody tr:hover {
 [data-status="offer"] {
   --status-color: #0f766e;
   --status-bg: #ccfbf1;
+}
+
+[data-status="可再次投递"] {
+  --status-color: #0e7490;
+  --status-bg: #cffafe;
 }
 
 [data-status] .status-dot {

@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.0.2";
-const APP_UPDATED_AT = "2026.07.14";
+const APP_VERSION = "2.0.3";
+const APP_UPDATED_AT = "2026.07.15";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -18,6 +18,7 @@ const STATUSES = [
 const BOARD_STATUSES = ["待测评", "待笔试", "待面试", "待初筛", "offer", "已拒绝"]
   .map((id) => STATUSES.find((status) => status.id === id))
   .filter(Boolean);
+const REAPPLY_STATUS = { id: "可再次投递", label: "可再次投递" };
 const CREATE_STATUSES = STATUSES.filter((status) => ["待初筛", "待笔试"].includes(status.id));
 const QUICK_FLOW_STATUSES = STATUSES.filter((status) => status.id !== "待初筛");
 
@@ -265,6 +266,38 @@ function formatDateTime(value = "") {
     minute: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+function recordCreatedAt(record) {
+  if (record?.createdAt) return record.createdAt;
+  if (record?.appliedAt) return new Date(`${record.appliedAt}T00:00:00`).toISOString();
+  return new Date().toISOString();
+}
+
+function durationFromCreated(record, endISO) {
+  const start = new Date(recordCreatedAt(record));
+  const end = new Date(endISO);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.max(0, end.getTime() - start.getTime());
+}
+
+function formatDuration(ms = 0) {
+  const hours = Math.round(ms / 3600000);
+  if (hours < 24) return `${hours} 小时`;
+  const days = Math.round(hours / 24);
+  return `${days} 天`;
+}
+
+function reapplySnapshot(record) {
+  return {
+    company: record.company || "",
+    rejectedAt: record.rejectedAt || new Date().toISOString(),
+    position: record.position || "",
+  };
+}
+
+function isReapplyRecord(record) {
+  return Boolean(record?.canReapply);
 }
 
 function reminderDeadline(record) {
@@ -573,9 +606,8 @@ function getFilteredRecords() {
     const queryMatch = !query || haystack.includes(query);
     const metricMatch =
       activeMetric === "all" ||
-      (activeMetric === "week" && record.appliedAt >= weekStart) ||
-      (activeMetric === "stale" && isStale(record)) ||
-      (activeMetric === "overdue" && isUpdateOverdue(record));
+      (activeMetric === "overdue" && isUpdateOverdue(record)) ||
+      (activeMetric === "reapply" && isReapplyRecord(record));
     return statusMatch && sourceMatch && cityMatch && queryMatch && metricMatch;
   });
 
@@ -1040,6 +1072,12 @@ function renderStats() {
       status: "all",
       metric: "overdue",
     },
+    {
+      label: "可再次投递",
+      value: records.filter(isReapplyRecord).length,
+      status: "all",
+      metric: "reapply",
+    },
   ];
 
   els.statsGrid.innerHTML = stats
@@ -1081,8 +1119,10 @@ function renderDueList() {
 }
 
 function renderBoard(list) {
-  els.boardView.innerHTML = BOARD_STATUSES.map((status) => {
-    const columnRecords = list.filter((record) => record.status === status.id);
+  const statusColumns = BOARD_STATUSES.map((status) => {
+    const columnRecords = list.filter(
+      (record) => record.status === status.id && !(status.id === "已拒绝" && isReapplyRecord(record)),
+    );
     return `
       <section class="kanban-column" data-drop-status="${status.id}" data-status="${status.id}">
         <div class="column-head">
@@ -1098,6 +1138,48 @@ function renderBoard(list) {
       </section>
     `;
   }).join("");
+  const reapplyRecords = list.filter(isReapplyRecord);
+  els.boardView.innerHTML = `
+    ${statusColumns}
+    <section class="kanban-column" data-status="${REAPPLY_STATUS.id}">
+      <div class="column-head">
+        <div class="column-title">
+          <span class="status-dot"></span>
+          ${REAPPLY_STATUS.label}
+        </div>
+        <span class="count-pill">${reapplyRecords.length}</span>
+      </div>
+      <div class="column-body">
+        ${reapplyRecords.map(reapplyCardHTML).join("") || emptyStateHTML()}
+      </div>
+    </section>
+  `;
+}
+
+function reapplyCardHTML(record) {
+  const snapshot = record.reapplyRecord || reapplySnapshot(record);
+  return `
+    <article class="record-card reapply-card" data-card-id="${record.id}" data-status="${REAPPLY_STATUS.id}" data-importance="${normalizeImportance(record)}" data-update-overdue="false" data-pinned="${record.pinnedAt ? "true" : "false"}">
+      <div class="record-card-actions" aria-label="记录操作">
+        <button class="swipe-action pin-action" type="button" data-pin-id="${record.id}">${record.pinnedAt ? "取消置顶" : "置顶"}</button>
+        <button class="swipe-action delete-action" type="button" data-delete-id="${record.id}">删除</button>
+      </div>
+      <div class="record-card-surface" data-open-id="${record.id}">
+        <div class="card-top">
+          <div>
+            <h3 class="card-title">${escapeHTML(snapshot.company || record.company)}</h3>
+            <div class="card-subtitle">${escapeHTML(snapshot.position || "未填写岗位")}</div>
+          </div>
+          <span class="importance-badge">${stars(normalizeImportance(record))}</span>
+        </div>
+        <div class="tag-row">
+          <span class="tag reapply-tag">可再次投递</span>
+          <span class="tag danger">拒绝于 ${formatDateTime(snapshot.rejectedAt)}</span>
+        </div>
+        <div class="meta-line">上次投递岗位 · ${escapeHTML(snapshot.position || "未填写")}</div>
+      </div>
+    </article>
+  `;
 }
 
 function recordCardHTML(record, variant = "") {
@@ -1529,6 +1611,7 @@ function formToRecord(base = null) {
     sourceType: data.sourceType,
     sourceDetail: data.sourceDetail.trim(),
     status: data.status,
+    createdAt: base ? recordCreatedAt(base) : new Date().toISOString(),
     appliedAt: data.appliedAt || now,
     updatedAt: data.updatedAt || now,
     nextCheckAt: data.nextCheckAt || "",
@@ -1537,6 +1620,12 @@ function formToRecord(base = null) {
     importantReminderType: importantReminderAt ? "deadline" : "none",
     importantReminderAt,
     importantReminderNote: importantReminderAt ? (data.importantReminderNote || "").trim() : "",
+    assessmentAt: base?.assessmentAt || "",
+    assessmentDurationMs: Number(base?.assessmentDurationMs || 0),
+    rejectedAt: base?.rejectedAt || "",
+    rejectedDurationMs: Number(base?.rejectedDurationMs || 0),
+    canReapply: Boolean(base?.canReapply),
+    reapplyRecord: base?.reapplyRecord || null,
     note,
     history: base?.history?.length
       ? [...base.history]
@@ -1549,6 +1638,27 @@ function formToRecord(base = null) {
           },
         ],
   };
+}
+
+function applyStatusMetrics(record, status) {
+  const clickedAt = new Date().toISOString();
+  if (!record.createdAt) {
+    record.createdAt = recordCreatedAt(record);
+  }
+  if (status === "待测评") {
+    record.assessmentAt = clickedAt;
+    record.assessmentDurationMs = durationFromCreated(record, clickedAt);
+  }
+  if (status === "已拒绝") {
+    record.rejectedAt = clickedAt;
+    record.rejectedDurationMs = durationFromCreated(record, clickedAt);
+    const canReapply = window.confirm("这家公司后续还能再次投递吗？");
+    record.canReapply = canReapply;
+    record.reapplyRecord = canReapply ? reapplySnapshot(record) : null;
+    return;
+  }
+  record.canReapply = false;
+  record.reapplyRecord = null;
 }
 
 function validateRecord(record) {
@@ -1604,6 +1714,9 @@ function saveFromForm(event) {
   }
 
   if (existing) {
+    if (existing.status !== next.status) {
+      applyStatusMetrics(next, next.status);
+    }
     const meaningfulUpdate =
       existing.status !== next.status ||
       existing.updatedAt !== next.updatedAt ||
@@ -1630,6 +1743,7 @@ function saveFromForm(event) {
 function updateRecordStatus(id, status, note = "快速切换状态") {
   const record = records.find((item) => item.id === id);
   if (!record || record.status === status) return;
+  applyStatusMetrics(record, status);
   record.status = status;
   record.updatedAt = todayISO();
   record.note = note;
@@ -1638,6 +1752,8 @@ function updateRecordStatus(id, status, note = "快速切换状态") {
     status,
     updatedAt: record.updatedAt,
     note,
+    assessmentAt: status === "待测评" ? record.assessmentAt : "",
+    rejectedAt: status === "已拒绝" ? record.rejectedAt : "",
   });
   saveRecords();
   render();
@@ -1710,6 +1826,12 @@ function closeDrawer() {
 function drawerHTML(record) {
   const importance = normalizeImportance(record);
   const updateOverdue = isUpdateOverdue(record);
+  const assessmentInfo = record.assessmentAt
+    ? `${formatDuration(record.assessmentDurationMs)} · ${formatDateTime(record.assessmentAt)}`
+    : "未记录";
+  const rejectedInfo = record.rejectedAt
+    ? `${formatDuration(record.rejectedDurationMs)} · ${formatDateTime(record.rejectedAt)}`
+    : "未记录";
   return `
     <div class="drawer-head" data-status="${record.status}" data-importance="${importance}" data-update-overdue="${updateOverdue ? "true" : "false"}">
       <div class="drawer-title-row">
@@ -1740,6 +1862,9 @@ function drawerHTML(record) {
           <span>来源</span><strong>${sourceToHTML(record)}</strong>
           <span>投递日期</span><strong>${formatDate(record.appliedAt)}</strong>
           <span>更新时间</span><strong>${formatDate(record.updatedAt)}</strong>
+          <span>推进耗时</span><strong>${assessmentInfo}</strong>
+          <span>拒绝耗时</span><strong>${rejectedInfo}</strong>
+          <span>可再次投递</span><strong>${record.canReapply ? "是" : "否"}</strong>
           <span>下次检查</span><strong>${formatDate(record.nextCheckAt)}</strong>
           <span>重要提醒</span><strong>${record.importantReminderAt ? `${formatDateTime(record.importantReminderAt)}${record.importantReminderNote ? ` · ${escapeHTML(record.importantReminderNote)}` : ""}` : "无"}</strong>
         </div>
@@ -1809,6 +1934,7 @@ function normalizeImportedRecords(input) {
     sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "官网",
     sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
     status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
+    createdAt: record.createdAt || new Date(`${record.appliedAt || todayISO()}T00:00:00`).toISOString(),
     appliedAt: record.appliedAt || todayISO(),
     updatedAt: record.updatedAt || todayISO(),
     nextCheckAt: record.nextCheckAt || "",
@@ -1817,6 +1943,12 @@ function normalizeImportedRecords(input) {
     importantReminderType: record.importantReminderAt ? "deadline" : "none",
     importantReminderAt: record.importantReminderAt || "",
     importantReminderNote: record.importantReminderNote || "",
+    assessmentAt: record.assessmentAt || "",
+    assessmentDurationMs: Number(record.assessmentDurationMs || 0),
+    rejectedAt: record.rejectedAt || "",
+    rejectedDurationMs: Number(record.rejectedDurationMs || 0),
+    canReapply: Boolean(record.canReapply),
+    reapplyRecord: record.reapplyRecord || null,
     note: record.note || "",
     history: Array.isArray(record.history) ? record.history : [],
   }));
