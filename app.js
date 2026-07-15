@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.0.4";
+const APP_VERSION = "2.0.5";
 const APP_UPDATED_AT = "2026.07.15";
 
 const STATUSES = [
@@ -684,6 +684,55 @@ function confirmStatusDeadline() {
     deadlineISO,
     note: els.statusDeadlineNoteInput.value.trim(),
   });
+}
+
+function calendarReminderTime(deadlineISO) {
+  return new Date(new Date(deadlineISO).getTime() - REMINDER_ALERT_WINDOW_MS);
+}
+
+function calendarEventPayload(record, status, deadlineISO, note = "") {
+  const reminderAt = calendarReminderTime(deadlineISO);
+  const endAt = new Date(reminderAt.getTime() + 30 * 60 * 1000);
+  const title = `秋招提醒：${record.company || "投递记录"} ${status}`;
+  const description = [
+    `公司：${record.company || "未填写"}`,
+    `岗位：${record.position || "未填写"}`,
+    `状态：${status}`,
+    `截止时间：${formatDateTime(deadlineISO)}`,
+    note ? `备注：${note}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    title,
+    description,
+    location: cityText(record),
+    beginTime: reminderAt.getTime(),
+    endTime: endAt.getTime(),
+  };
+}
+
+async function offerCalendarCreation(record, status, deadlineISO, note = "") {
+  const shouldCreate = await askActionConfirm({
+    title: "创建系统日历提醒？",
+    message: `是否在手机系统日历里创建「${record.company || "这条记录"}」的${status}提醒？时间会设为截止前 12 小时。`,
+    confirmLabel: "是，创建日历",
+    cancelLabel: "否",
+    tone: "calendar",
+  });
+  if (!shouldCreate) return;
+  const payload = calendarEventPayload(record, status, deadlineISO, note);
+  if (window.AndroidBridge?.createCalendarEvent) {
+    window.AndroidBridge.createCalendarEvent(
+      payload.title,
+      payload.description,
+      payload.location,
+      String(payload.beginTime),
+      String(payload.endTime),
+    );
+    return;
+  }
+  showToast("当前网页版无法打开系统日历，请在 APK 中使用");
 }
 
 function getFilteredRecords() {
@@ -1797,6 +1846,7 @@ async function ensureStatusDeadline(record, status, force = false) {
   record.importantReminderType = "deadline";
   record.importantReminderAt = deadline.deadlineISO;
   record.importantReminderNote = deadline.note || `${status}截止时间`;
+  await offerCalendarCreation(record, status, deadline.deadlineISO, record.importantReminderNote);
   return true;
 }
 
