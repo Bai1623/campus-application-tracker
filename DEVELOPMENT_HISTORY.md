@@ -2,7 +2,7 @@
 
 本文档记录「秋招投递管理」从最初想法到当前 APK 版本的主要开发过程。整理依据包括项目对话需求、实际功能演进和 Git 提交历史。
 
-当前版本：`2.0.5 / versionCode 31`
+当前版本：`2.1.0 / versionCode 32`
 
 `2.x` 阶段从重要提醒能力开始。
 
@@ -227,6 +227,16 @@
 - 日历事件时间自动设为截止日期前 12 小时，并带入公司、岗位、状态、截止时间和提醒备注。
 - 选择「否」时，只保留 App 内强提醒，不创建系统日历事件。
 
+### 31. 2.1.0 模块化底部导航重构
+
+- 页面结构从原来的从上到下长网页，重构为更接近手机 App 的模块化布局。
+- 底部新增 5 个入口：总览、投递、添加、提醒、我的。
+- 「总览」只展示状态筛选和筛选条件，默认不展示具体投递记录；点击状态或统计后再进入结果列表。
+- 「投递」保留原有看板、列表、卡片左滑、快速流转、编辑、删除、置顶等核心操作。
+- 「提醒」集中展示今日待检查和截止前 12 小时的重要事项。
+- 「我的」集中放置账号管理、管理员账户、当前账号统计、数据导入导出、作者信息。
+- 顶部搜索保留全局能力，搜索命中后自动进入投递列表；无结果时提示当前暂无该信息。
+
 ## Git 提交索引
 
 | 提交 | 日期 | 内容 |
@@ -247,6 +257,13 @@
 | `271026e` | 2026-07-13 | Connect cloud share links |
 | `d9318c8` | 2026-07-13 | Improve account layout and record cards |
 | `80cc09b` | 2026-07-13 | Move account deletion to admin panel |
+| `4bfdd59` | 2026-07-15 | Add development history document |
+| `a9cb1bf` | 2026-07-15 | Start v2 with important reminders |
+| `4187f48` | 2026-07-15 | Expand statuses and footer version info |
+| `a47974f` | 2026-07-15 | Optimize home dashboard layout |
+| `d918b48` | 2026-07-15 | Track status durations and reapply records |
+| `1dff6ec` | 2026-07-15 | Improve rejection flow and deadline reminders |
+| `e6de25c` | 2026-07-15 | Add calendar event reminders for deadlines |
 
 ## 后续版本约定
 

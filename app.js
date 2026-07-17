@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.0.5";
-const APP_UPDATED_AT = "2026.07.15";
+const APP_VERSION = "2.1.0";
+const APP_UPDATED_AT = "2026.07.17";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -85,6 +85,14 @@ const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-app
 const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
 
 const icons = {
+  home:
+    '<svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"></path><path d="M5 10v10h5v-6h4v6h5V10"></path></svg>',
+  briefcase:
+    '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M3 12h18"></path></svg>',
+  bell:
+    '<svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>',
+  user:
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></svg>',
   search:
     '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>',
   download:
@@ -120,6 +128,7 @@ let activeAccountId = "";
 let activeStatus = "all";
 let activeMetric = "all";
 let activeView = "board";
+let activeModule = "overview";
 let editingId = null;
 let selectedId = null;
 let draggedId = null;
@@ -150,6 +159,10 @@ const els = {
   confirmDeleteAccountBtn: document.querySelector("#confirmDeleteAccountBtn"),
   cancelDeleteAccountBtn: document.querySelector("#cancelDeleteAccountBtn"),
   accountFeedback: document.querySelector("#accountFeedback"),
+  overviewPage: document.querySelector("#overviewPage"),
+  recordsPage: document.querySelector("#recordsPage"),
+  remindersPage: document.querySelector("#remindersPage"),
+  profilePage: document.querySelector("#profilePage"),
   statusFilters: document.querySelector("#statusFilters"),
   sourceFilter: document.querySelector("#sourceFilter"),
   cityFilter: document.querySelector("#cityFilter"),
@@ -206,6 +219,7 @@ const els = {
   importantReminderDialog: document.querySelector("#importantReminderDialog"),
   closeImportantReminderBtn: document.querySelector("#closeImportantReminderBtn"),
   importantReminderList: document.querySelector("#importantReminderList"),
+  reminderHubList: document.querySelector("#reminderHubList"),
   actionConfirmDialog: document.querySelector("#actionConfirmDialog"),
   actionConfirmTitle: document.querySelector("#actionConfirmTitle"),
   actionConfirmMessage: document.querySelector("#actionConfirmMessage"),
@@ -818,17 +832,32 @@ function sourceToHTML(record) {
 function renderStatusFilters() {
   const allCount = records.length;
   const buttons = [
-    { id: "all", label: "全部记录", count: allCount },
+    { id: "all", label: "全部记录", count: allCount, metric: "all" },
     ...STATUSES.map((status) => ({
       ...status,
       count: records.filter((record) => record.status === status.id).length,
+      metric: "all",
     })),
+    {
+      id: "all",
+      label: REAPPLY_STATUS.label,
+      count: records.filter(isReapplyRecord).length,
+      metric: "reapply",
+      statusId: REAPPLY_STATUS.id,
+    },
+    {
+      id: "all",
+      label: "逾期预警",
+      count: records.filter(isUpdateOverdue).length,
+      metric: "overdue",
+      statusId: "已拒绝",
+    },
   ];
 
   els.statusFilters.innerHTML = buttons
     .map(
       (item) => `
-        <button class="filter-chip ${activeStatus === item.id ? "active" : ""}" type="button" data-filter-status="${item.id}" ${item.id === "all" ? "" : `data-status="${item.id}"`}>
+        <button class="filter-chip ${activeStatus === item.id && activeMetric === item.metric ? "active" : ""}" type="button" data-filter-status="${item.id}" data-filter-metric="${item.metric}" ${item.id === "all" ? "" : `data-status="${item.id}"`}>
           <span class="chip-left">
             ${item.id === "all" ? '<span data-icon="inbox"></span>' : '<span class="status-dot"></span>'}
             ${escapeHTML(item.label)}
@@ -868,8 +897,12 @@ function setAccountFeedback(message = "每个账号的数据本地隔离保存�
 }
 
 function toggleAccountMenu(forceOpen) {
-  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : els.accountMenu.classList.contains("hidden");
-  els.accountMenu.classList.toggle("hidden", !shouldOpen);
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : activeModule !== "profile";
+  if (shouldOpen) {
+    setModule("profile");
+  } else {
+    setModule("overview");
+  }
   els.accountMenuBtn.setAttribute("aria-expanded", String(shouldOpen));
   if (shouldOpen) {
     renderAccountPanel();
@@ -1269,6 +1302,27 @@ function renderDueList() {
     .join("");
 }
 
+function renderReminderHub() {
+  if (!els.reminderHubList) return;
+  const list = upcomingImportantReminders().slice(0, 10);
+  if (!list.length) {
+    els.reminderHubList.innerHTML = '<p class="empty-mini">当前没有 12 小时内截止的重要事项。</p>';
+    return;
+  }
+  els.reminderHubList.innerHTML = list
+    .map(
+      (record) => `
+        <button class="reminder-item" type="button" data-reminder-open-id="${record.id}">
+          <span class="reminder-time">${escapeHTML(reminderRemainingText(record))}</span>
+          <strong>${escapeHTML(record.company)}</strong>
+          <em>${escapeHTML(record.status)} · ${escapeHTML(record.position || "未填写岗位")}</em>
+          <span>${formatDateTime(record.importantReminderAt)}${record.importantReminderNote ? ` · ${escapeHTML(record.importantReminderNote)}` : ""}</span>
+        </button>
+      `,
+    )
+    .join("");
+}
+
 function renderBoard(list) {
   const statusColumns = BOARD_STATUSES.map((status) => {
     const columnRecords = list.filter(
@@ -1612,6 +1666,7 @@ function render() {
   renderCityFilter();
   renderStats();
   renderDueList();
+  renderReminderHub();
   renderBoard(list);
   renderTable(list);
   renderInsights();
@@ -1635,12 +1690,41 @@ function submitSearch() {
   els.resultMeta.classList.remove("is-warning");
   if (!query) return;
   if (!list.length) {
+    setModule("records");
+    setView("table");
     els.resultMeta.textContent = "当前暂无该信息，可以换个关键词试试。";
     els.resultMeta.classList.add("is-warning");
     return;
   }
+  setModule("records");
   setView("table");
   els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setModule(module) {
+  activeModule = module;
+  const modules = {
+    overview: els.overviewPage,
+    records: els.recordsPage,
+    reminders: els.remindersPage,
+    profile: els.profilePage,
+  };
+  Object.entries(modules).forEach(([key, element]) => {
+    if (!element) return;
+    element.classList.toggle("hidden", key !== module);
+    element.classList.toggle("is-active", key === module);
+  });
+  document.querySelectorAll("[data-module-nav]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.moduleNav === module);
+  });
+  els.accountMenuBtn?.setAttribute("aria-expanded", String(module === "profile"));
+  if (module === "records") {
+    setView(activeView);
+  }
+  if (module === "profile") {
+    els.insightsView?.classList.remove("hidden");
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function setView(view) {
@@ -1650,7 +1734,6 @@ function setView(view) {
   });
   els.boardView.classList.toggle("hidden", view !== "board");
   els.tableView.classList.toggle("hidden", view !== "table");
-  els.insightsView.classList.toggle("hidden", view !== "insights");
 }
 
 function populateSelects() {
@@ -2648,6 +2731,7 @@ function bindEvents() {
   });
 
   document.addEventListener("click", async (event) => {
+    const moduleTarget = event.target.closest("[data-module-nav]");
     const accountTarget = event.target.closest("[data-switch-account]");
     const confirmSwitchTarget = event.target.closest("[data-confirm-switch]");
     const saveAccountNameTarget = event.target.closest("#saveAccountNameBtn");
@@ -2657,7 +2741,6 @@ function bindEvents() {
     const setMasterPasswordTarget = event.target.closest("[data-set-master-password]");
     const unlockMasterPasswordTarget = event.target.closest("[data-unlock-master-password]");
     const lockMasterPasswordTarget = event.target.closest("[data-lock-master-password]");
-    const isAccountSurface = event.target.closest("#accountMenu") || event.target.closest("#accountMenuBtn");
     const openTarget = event.target.closest("[data-open-id]");
     const editTarget = event.target.closest("[data-edit-id]");
     const deleteTarget = event.target.closest("[data-delete-id]");
@@ -2669,6 +2752,11 @@ function bindEvents() {
     const statTarget = event.target.closest("[data-stat-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
     const reminderOpenTarget = event.target.closest("[data-reminder-open-id]");
+
+    if (moduleTarget) {
+      setModule(moduleTarget.dataset.moduleNav);
+      return;
+    }
 
     if (confirmSwitchTarget) {
       const accountId = confirmSwitchTarget.dataset.confirmSwitch;
@@ -2719,10 +2807,6 @@ function bindEvents() {
       return;
     }
 
-    if (!els.accountMenu.classList.contains("hidden") && !isAccountSurface) {
-      toggleAccountMenu(false);
-    }
-
     if (dueCheckedTarget) {
       event.stopPropagation();
       markDueChecked(dueCheckedTarget.dataset.dueCheckedId);
@@ -2747,14 +2831,18 @@ function bindEvents() {
 
     if (filterTarget) {
       activeStatus = filterTarget.dataset.filterStatus;
-      activeMetric = "all";
+      activeMetric = filterTarget.dataset.filterMetric || "all";
+      setModule("records");
+      setView("table");
       render();
+      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
     if (statTarget) {
       activeStatus = statTarget.dataset.statStatus;
       activeMetric = statTarget.dataset.statMetric;
+      setModule("records");
       setView("table");
       render();
       els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2954,6 +3042,7 @@ function init() {
   renderVersionInfo();
   render();
   bindEvents();
+  setModule(activeModule);
   setView(activeView);
   registerServiceWorker();
   window.setTimeout(showImportantReminderDialog, 260);
