@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.6";
+const APP_VERSION = "2.2.7";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -2897,6 +2897,37 @@ function tokenFromImportInput(value = "") {
   }
 }
 
+function recordsFromRawImportInput(value = "") {
+  const text = value.trim();
+  if (!text) return null;
+  const decodedCandidates = [text];
+  try {
+    const decoded = decodeURIComponent(text);
+    if (decoded && decoded !== text) decodedCandidates.push(decoded);
+  } catch {
+    // Ignore malformed percent escapes; the original text may still be valid JSON.
+  }
+
+  const candidates = decodedCandidates.flatMap((candidate) => {
+    const trimmed = candidate.trim();
+    const list = [trimmed];
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && trimmed.includes('"company"')) {
+      list.push(`{${trimmed}}`);
+      list.push(`[{${trimmed}}]`);
+    }
+    return list;
+  });
+
+  for (const candidate of candidates) {
+    try {
+      return normalizeImportedRecords(JSON.parse(candidate));
+    } catch {
+      // Try the next shape.
+    }
+  }
+  return null;
+}
+
 function cloudShareIdFromInput(value = "") {
   const text = value.trim();
   if (!text) return "";
@@ -2953,11 +2984,12 @@ async function restoreCloudBackup(backupId) {
 
 async function importFromLinkInput() {
   const input = els.importLinkInput.value.trim();
+  const rawRecords = recordsFromRawImportInput(input);
   const shareId = cloudShareIdFromInput(input);
   const token = tokenFromImportInput(input);
 
-  if (!shareId && !token) {
-    setImportLinkFeedback("先粘贴导入链接。", "error");
+  if (!rawRecords && !shareId && !token) {
+    setImportLinkFeedback("先粘贴短链接、原始长链接或 JSON 内容。", "error");
     els.importLinkInput.focus();
     return;
   }
@@ -2965,14 +2997,14 @@ async function importFromLinkInput() {
   setImportLinkFeedback("正在导入...", "info");
 
   try {
-    const nextRecords = shareId
+    const nextRecords = rawRecords || (shareId
       ? await importCloudShare(shareId)
-      : await decodeImportToken(decodeURIComponent(token));
+      : await decodeImportToken(decodeURIComponent(token)));
     applyImportedRecords(nextRecords);
     closeLinkImportDialog();
     showToast("已导入");
   } catch {
-    setImportLinkFeedback("导入链接无效、已过期或网络不可用。", "error");
+    setImportLinkFeedback("导入失败：内容不可读取，可能是旧版云端链接、云端未保存成功，或网络不可用。", "error");
   }
 }
 

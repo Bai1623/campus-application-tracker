@@ -429,7 +429,7 @@
         </div>
         <div>
           <strong>选择导入方式</strong>
-          <p>导入会覆盖当前账号现有记录。你可以选择 JSON 文件，也可以粘贴别人发来的导入链接。</p>
+          <p>导入会覆盖当前账号现有记录。你可以选择 JSON 文件，也可以粘贴短链接、原始长链接 / 原始 JSON。</p>
         </div>
       </div>
       <div class="link-import-actions">
@@ -439,8 +439,8 @@
           <small>打开文件管理器，选择之前导出的 JSON 文件</small>
         </button>
         <label class="link-import-field" for="importLinkInput">
-          <span>通过链接导入</span>
-          <textarea id="importLinkInput" rows="4" placeholder="粘贴短链接，例如 https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share?id=Ab3x9K"></textarea>
+          <span>通过链接或原始内容导入</span>
+          <textarea id="importLinkInput" rows="6" placeholder="粘贴短链接、旧版原始长链接，或直接粘贴原始 JSON 记录内容"></textarea>
         </label>
         <p id="importLinkFeedback" class="link-import-feedback" aria-live="polite"></p>
       </div>
@@ -448,7 +448,7 @@
         <button class="text-button" type="button" id="rejectLinkImportBtn">取消</button>
         <button class="primary-button" type="button" id="confirmLinkImportBtn">
           <span data-icon="check"></span>
-          导入链接
+          导入
         </button>
       </div>
     </section>

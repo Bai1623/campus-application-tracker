@@ -19,7 +19,10 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.6"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.7"'), "app version should be bumped for this iteration");
+assert(app.includes("function recordsFromRawImportInput"), "link import should support pasted raw JSON data");
+assert(app.includes("const rawRecords = recordsFromRawImportInput(input)"), "link import should try raw/original data before import tokens");
+assert(html.includes("原始长链接 / 原始 JSON"), "import UI should explicitly mention original long links and raw JSON");
 assert(app.includes("const AUTO_BACKUP_INTERVAL_MS = 12 * 60 * 60 * 1000"), "auto backup should run after 12 hours");
 assert(app.includes("const MAX_CLOUD_BACKUPS = 30"), "cloud backup history should keep the latest 30 entries");
 assert(html.includes('id="cloudBackupPanel"'), "profile should include cloud backup center");
