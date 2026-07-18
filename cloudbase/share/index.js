@@ -45,26 +45,23 @@ function syncDocId(syncKey) {
 }
 
 async function getDoc(id) {
-  const result = await collection.doc(id).get();
-  return result?.data?.[0] || result?.data || null;
+  const result = await collection.where({ lookupKey: id }).limit(1).get();
+  return result?.data?.[0] || null;
 }
 
 async function saveDoc(id, data) {
+  const oldDoc = await getDoc(id).catch(() => null);
   const payload = {
-    _id: id,
+    lookupKey: id,
     ...data,
     updatedAt: new Date().toISOString(),
   };
-  try {
-    await collection.doc(id).set(payload);
-  } catch {
+  if (oldDoc?._id) {
     const { _id, ...updatablePayload } = payload;
-    try {
-      await collection.doc(id).update(updatablePayload);
-    } catch {
-      await collection.add(payload);
-    }
+    await collection.doc(oldDoc._id).update(updatablePayload);
+    return;
   }
+  await collection.add(payload);
 }
 
 exports.main = async (event = {}) => {

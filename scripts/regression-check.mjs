@@ -43,6 +43,7 @@ assert(app.includes("checkAndOfferCloudSyncRestore"), "app should offer restore 
 assert(cloudbaseFunction.includes('action === "sync-put"'), "CloudBase function should support sync-put");
 assert(cloudbaseFunction.includes('action === "sync-get"'), "CloudBase function should support sync-get");
 assert(cloudbaseFunction.includes("latestShareId"), "CloudBase function should store the latest share id for a sync key");
+assert(cloudbaseFunction.includes("lookupKey"), "CloudBase function should query by lookupKey instead of relying on custom document ids");
 assert(app.includes('const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share"'), "cloud share should use Tencent CloudBase HTTP gateway");
 assert(!app.includes("workers.dev"), "cloud share should not reference Cloudflare workers");
 assert(!html.includes("workers.dev"), "UI examples should not reference Cloudflare workers");
