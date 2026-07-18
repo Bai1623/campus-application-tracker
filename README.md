@@ -34,7 +34,7 @@
 
 ## APK 安装
 
-Android 安装包位于 `releases/秋招投递-debug.apk`。当前版本为 `2.2.0 / versionCode 33`，安装包已完成 APK 资源对齐，并通过 Android v1、v2、v3 签名校验。
+Android 安装包位于 `releases/秋招投递-debug.apk`。当前版本为 `2.2.1 / versionCode 34`，安装包已完成 APK 资源对齐，并通过 Android v1、v2、v3 签名校验。
 
 当前修复包使用新的本地调试证书。如果手机已经安装过旧证书签名的同包名版本，请先在旧版中导出 JSON 备份，然后卸载旧版、安装当前 APK，最后导入 JSON 恢复数据。Android 不允许使用不同证书直接覆盖安装同一包名的应用。
 

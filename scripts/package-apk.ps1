@@ -3,7 +3,6 @@ param(
   [string]$OutputApk,
   [Parameter(Mandatory = $true)]
   [string]$BuildToolsDir,
-  [string]$AndroidJar,
   [string]$Keystore = (Join-Path $env:USERPROFILE ".android\debug.keystore"),
   [string]$KeyAlias = "androiddebugkey",
   [string]$StorePassword = "android",
@@ -12,10 +11,106 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-UInt16LE([byte[]]$Bytes, [int]$Offset) {
+  return [System.BitConverter]::ToUInt16($Bytes, $Offset)
+}
+
+function Get-UInt32LE([byte[]]$Bytes, [int]$Offset) {
+  return [System.BitConverter]::ToUInt32($Bytes, $Offset)
+}
+
+function Set-UInt32LE([byte[]]$Bytes, [int]$Offset, [uint32]$Value) {
+  $valueBytes = [System.BitConverter]::GetBytes($Value)
+  [System.Array]::Copy($valueBytes, 0, $Bytes, $Offset, 4)
+}
+
+function Find-ByteSequence([byte[]]$Bytes, [byte[]]$Needle) {
+  $matches = New-Object System.Collections.Generic.List[int]
+  for ($offset = 0; $offset -le $Bytes.Length - $Needle.Length; $offset++) {
+    $matched = $true
+    for ($index = 0; $index -lt $Needle.Length; $index++) {
+      if ($Bytes[$offset + $index] -ne $Needle[$index]) {
+        $matched = $false
+        break
+      }
+    }
+    if ($matched) {
+      $matches.Add($offset)
+    }
+  }
+  return $matches.ToArray()
+}
+
+function Set-ManifestVersion(
+  [byte[]]$ManifestBytes,
+  [string]$OldVersionName,
+  [string]$NewVersionName,
+  [uint32]$NewVersionCode
+) {
+  $resourceMap = @{}
+  $versionCodePatched = 0
+  $chunkOffset = 8
+
+  while ($chunkOffset -lt $ManifestBytes.Length) {
+    $chunkType = Get-UInt16LE $ManifestBytes $chunkOffset
+    $chunkSize = Get-UInt32LE $ManifestBytes ($chunkOffset + 4)
+    if ($chunkSize -lt 8 -or $chunkOffset + $chunkSize -gt $ManifestBytes.Length) {
+      throw "Invalid binary AndroidManifest.xml chunk at offset $chunkOffset."
+    }
+
+    if ($chunkType -eq 0x0180) {
+      $resourceCount = [int](($chunkSize - 8) / 4)
+      for ($index = 0; $index -lt $resourceCount; $index++) {
+        $resourceMap[$index] = Get-UInt32LE $ManifestBytes ($chunkOffset + 8 + ($index * 4))
+      }
+    } elseif ($chunkType -eq 0x0102) {
+      $attributeStart = Get-UInt16LE $ManifestBytes ($chunkOffset + 24)
+      $attributeSize = Get-UInt16LE $ManifestBytes ($chunkOffset + 26)
+      $attributeCount = Get-UInt16LE $ManifestBytes ($chunkOffset + 28)
+      $attributeOffset = $chunkOffset + 16 + $attributeStart
+
+      for ($index = 0; $index -lt $attributeCount; $index++) {
+        $currentAttribute = $attributeOffset + ($index * $attributeSize)
+        $nameIndex = Get-UInt32LE $ManifestBytes ($currentAttribute + 4)
+        if ($resourceMap.ContainsKey([int]$nameIndex) -and $resourceMap[[int]$nameIndex] -eq 0x0101021b) {
+          Set-UInt32LE $ManifestBytes ($currentAttribute + 16) $NewVersionCode
+          $versionCodePatched++
+        }
+      }
+    }
+
+    $chunkOffset += $chunkSize
+  }
+
+  if ($versionCodePatched -ne 1) {
+    throw "Expected one android:versionCode attribute, found $versionCodePatched."
+  }
+
+  if ($OldVersionName -ne $NewVersionName) {
+    $oldVersionBytes = [System.Text.Encoding]::Unicode.GetBytes($OldVersionName)
+    $newVersionBytes = [System.Text.Encoding]::Unicode.GetBytes($NewVersionName)
+    if ($oldVersionBytes.Length -ne $newVersionBytes.Length) {
+      throw "Binary version patch requires equal-length version names: $OldVersionName -> $NewVersionName"
+    }
+
+    $versionNameOffsets = @(Find-ByteSequence $ManifestBytes $oldVersionBytes)
+    if ($versionNameOffsets.Count -ne 1) {
+      throw "Expected one versionName string in AndroidManifest.xml, found $($versionNameOffsets.Count)."
+    }
+    [System.Array]::Copy(
+      $newVersionBytes,
+      0,
+      $ManifestBytes,
+      $versionNameOffsets[0],
+      $newVersionBytes.Length
+    )
+  }
+
+  return $ManifestBytes
+}
+
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $versionFile = Join-Path $projectRoot "version.properties"
-$manifestFile = Join-Path $projectRoot "android-wrapper\AndroidManifest.xml"
-$resourceDirectory = Join-Path $projectRoot "android-wrapper\res"
 
 if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {
   throw "Version file not found: $versionFile"
@@ -24,16 +119,9 @@ if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {
 $version = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-StringData
 $versionName = $version.VERSION_NAME
 $versionCode = $version.VERSION_CODE
-$minSdk = $version.MIN_SDK
-$targetSdk = $version.TARGET_SDK
 
-if ($versionName -notmatch '^\d+\.\d+\.\d+$') {
-  throw "Invalid VERSION_NAME in version.properties: $versionName"
-}
-foreach ($numericValue in @($versionCode, $minSdk, $targetSdk)) {
-  if ($numericValue -notmatch '^\d+$') {
-    throw "Version code and SDK values must be integers."
-  }
+if ($versionName -notmatch '^\d+\.\d+\.\d+$' -or $versionCode -notmatch '^\d+$') {
+  throw "Invalid VERSION_NAME or VERSION_CODE in version.properties."
 }
 
 $appScript = Get-Content -LiteralPath (Join-Path $projectRoot "app.js") -Raw
@@ -62,32 +150,13 @@ $outputPath = [System.IO.Path]::GetFullPath($OutputApk)
 $buildToolsPath = [System.IO.Path]::GetFullPath($BuildToolsDir)
 $keystorePath = [System.IO.Path]::GetFullPath($Keystore)
 $aapt = Join-Path $buildToolsPath "aapt.exe"
-$aapt2 = Join-Path $buildToolsPath "aapt2.exe"
 $zipalign = Join-Path $buildToolsPath "zipalign.exe"
 $apksigner = Join-Path $buildToolsPath "apksigner.bat"
 
-if ([string]::IsNullOrWhiteSpace($AndroidJar)) {
-  $sdkRoot = Split-Path -Parent (Split-Path -Parent $buildToolsPath)
-  $AndroidJar = Join-Path $sdkRoot "platforms\android-$targetSdk\android.jar"
-}
-$androidJarPath = [System.IO.Path]::GetFullPath($AndroidJar)
-
-foreach ($requiredPath in @(
-  $inputPath,
-  $keystorePath,
-  $manifestFile,
-  $androidJarPath,
-  $aapt,
-  $aapt2,
-  $zipalign,
-  $apksigner
-)) {
+foreach ($requiredPath in @($inputPath, $keystorePath, $aapt, $zipalign, $apksigner)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
     throw "Required file not found: $requiredPath"
   }
-}
-if (-not (Test-Path -LiteralPath $resourceDirectory -PathType Container)) {
-  throw "Android resource directory not found: $resourceDirectory"
 }
 
 $assetMap = @{
@@ -99,70 +168,85 @@ $assetMap = @{
   "app-icon.svg" = @("assets/app-icon.svg")
 }
 
+$assetEntryNames = New-Object System.Collections.Generic.HashSet[string]
 foreach ($sourceName in $assetMap.Keys) {
   $sourcePath = Join-Path $projectRoot $sourceName
   if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
     throw "Web asset not found: $sourcePath"
   }
+  foreach ($entryName in $assetMap[$sourceName]) {
+    [void]$assetEntryNames.Add($entryName)
+  }
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("campus-apk-" + [guid]::NewGuid().ToString("N"))
-$compiledResources = Join-Path $tempRoot "compiled-resources.zip"
-$unsignedApk = Join-Path $tempRoot "unsigned.apk"
+$workingApk = Join-Path $tempRoot "working.apk"
 $alignedApk = Join-Path $tempRoot "aligned.apk"
 $signedApk = Join-Path $tempRoot "signed.apk"
 
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 try {
-  & $aapt2 compile --dir $resourceDirectory -o $compiledResources
-  if ($LASTEXITCODE -ne 0) {
-    throw "aapt2 resource compilation failed with exit code $LASTEXITCODE"
-  }
+  Copy-Item -LiteralPath $inputPath -Destination $workingApk
 
-  & $aapt2 link `
-    -o $unsignedApk `
-    -I $androidJarPath `
-    --manifest $manifestFile `
-    --min-sdk-version $minSdk `
-    --target-sdk-version $targetSdk `
-    --version-code $versionCode `
-    --version-name $versionName `
-    $compiledResources
-  if ($LASTEXITCODE -ne 0) {
-    throw "aapt2 APK linking failed with exit code $LASTEXITCODE"
+  $inputBadging = (& $aapt dump badging $workingApk) -join "`n"
+  if ($LASTEXITCODE -ne 0 -or $inputBadging -notmatch "versionName='([^']+)'") {
+    throw "Unable to read input APK versionName."
   }
+  $oldVersionName = $Matches[1]
 
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-  $inputArchive = [System.IO.Compression.ZipFile]::OpenRead($inputPath)
-  $outputArchive = [System.IO.Compression.ZipFile]::Open(
-    $unsignedApk,
+  $archive = [System.IO.Compression.ZipFile]::Open(
+    $workingApk,
     [System.IO.Compression.ZipArchiveMode]::Update
   )
 
   try {
-    $dexEntries = @($inputArchive.Entries | Where-Object {
-      $_.FullName -match '^classes\d*\.dex$'
-    })
-    if ($dexEntries.Count -eq 0) {
-      throw "No classes.dex entries found in input APK."
+    $manifestEntry = $archive.GetEntry("AndroidManifest.xml")
+    if ($null -eq $manifestEntry) {
+      throw "AndroidManifest.xml not found in input APK."
+    }
+    $manifestStream = $manifestEntry.Open()
+    $manifestBuffer = New-Object System.IO.MemoryStream
+    try {
+      $manifestStream.CopyTo($manifestBuffer)
+      $manifestBytes = $manifestBuffer.ToArray()
+    } finally {
+      $manifestBuffer.Dispose()
+      $manifestStream.Dispose()
     }
 
-    foreach ($sourceEntry in $dexEntries) {
-      $targetEntry = $outputArchive.CreateEntry(
-        $sourceEntry.FullName,
-        [System.IO.Compression.CompressionLevel]::Optimal
-      )
-      $sourceStream = $sourceEntry.Open()
-      $targetStream = $targetEntry.Open()
-      try {
-        $sourceStream.CopyTo($targetStream)
-      } finally {
-        $targetStream.Dispose()
-        $sourceStream.Dispose()
-      }
+    $patchedManifest = Set-ManifestVersion `
+      $manifestBytes `
+      $oldVersionName `
+      $versionName `
+      ([uint32]$versionCode)
+
+    $entriesToDelete = @($archive.Entries | Where-Object {
+      $upperName = $_.FullName.ToUpperInvariant()
+      $isSignature = $upperName -eq "META-INF/MANIFEST.MF" -or
+        $upperName.EndsWith(".SF") -or
+        $upperName.EndsWith(".RSA") -or
+        $upperName.EndsWith(".DSA") -or
+        $upperName.EndsWith(".EC")
+      $isSignature -or $_.FullName -eq "AndroidManifest.xml" -or $assetEntryNames.Contains($_.FullName)
+    })
+
+    foreach ($entry in $entriesToDelete) {
+      $entry.Delete()
+    }
+
+    $newManifestEntry = $archive.CreateEntry(
+      "AndroidManifest.xml",
+      [System.IO.Compression.CompressionLevel]::Optimal
+    )
+    $newManifestStream = $newManifestEntry.Open()
+    try {
+      $newManifestStream.Write($patchedManifest, 0, $patchedManifest.Length)
+    } finally {
+      $newManifestStream.Dispose()
     }
 
     foreach ($sourceName in $assetMap.Keys) {
@@ -170,7 +254,7 @@ try {
       $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
 
       foreach ($entryName in $assetMap[$sourceName]) {
-        $entry = $outputArchive.CreateEntry(
+        $entry = $archive.CreateEntry(
           $entryName,
           [System.IO.Compression.CompressionLevel]::Optimal
         )
@@ -183,11 +267,10 @@ try {
       }
     }
   } finally {
-    $outputArchive.Dispose()
-    $inputArchive.Dispose()
+    $archive.Dispose()
   }
 
-  & $zipalign -f -p 4 $unsignedApk $alignedApk
+  & $zipalign -f -p 4 $workingApk $alignedApk
   if ($LASTEXITCODE -ne 0) {
     throw "zipalign failed with exit code $LASTEXITCODE"
   }
