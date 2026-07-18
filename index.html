@@ -190,6 +190,23 @@
 
           <section id="insightsView" class="insights-view" aria-label="投递统计分析"></section>
 
+          <section id="cloudBackupPanel" class="module-card cloud-backup-panel">
+            <div class="module-card-head">
+              <div>
+                <p class="section-label">云备份中心</p>
+                <h3>自动备份与恢复</h3>
+              </div>
+              <span id="cloudBackupStatus" class="card-hint">每 12 小时自动检查</span>
+            </div>
+            <div class="cloud-backup-actions">
+              <button id="backupNowBtn" class="profile-action" type="button">
+                <span data-icon="share"></span>
+                <strong>立即备份</strong>
+              </button>
+            </div>
+            <div id="cloudBackupList" class="cloud-backup-list" aria-label="云备份历史"></div>
+          </section>
+
           <section class="module-card">
             <div class="module-card-head">
               <div>
@@ -221,7 +238,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.2.3 · 更新于 2026.07.19</span>
+          <span id="appVersionInfo" class="version-info">v2.2.4 · 更新于 2026.07.19</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">

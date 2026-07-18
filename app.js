@@ -4,7 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.2.3";
+const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
+const APP_VERSION = "2.2.4";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -85,6 +86,8 @@ const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
 const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share";
 const CLOUD_SHARE_TIMEOUT_MS = 8000;
+const AUTO_BACKUP_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const MAX_CLOUD_BACKUPS = 30;
 
 const icons = {
   home:
@@ -143,6 +146,7 @@ let actionConfirmResolve = null;
 let statusDeadlineResolve = null;
 let dueStatusResolve = null;
 let cloudShareRequestPending = false;
+let cloudBackupRequestPending = false;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -190,6 +194,9 @@ const els = {
   saveExportBtn: document.querySelector("#saveExportBtn"),
   copyExportBtn: document.querySelector("#copyExportBtn"),
   copyImportLinkBtn: document.querySelector("#copyImportLinkBtn"),
+  cloudBackupStatus: document.querySelector("#cloudBackupStatus"),
+  cloudBackupList: document.querySelector("#cloudBackupList"),
+  backupNowBtn: document.querySelector("#backupNowBtn"),
   linkImportDialog: document.querySelector("#linkImportDialog"),
   chooseJsonImportBtn: document.querySelector("#chooseJsonImportBtn"),
   importLinkInput: document.querySelector("#importLinkInput"),
@@ -516,6 +523,10 @@ function recordsKey(accountId = activeAccountId) {
   return `${ACCOUNT_RECORDS_PREFIX}${accountId}`;
 }
 
+function cloudBackupsKey(accountId = activeAccountId) {
+  return `${CLOUD_BACKUP_PREFIX}${accountId}`;
+}
+
 function defaultAccount() {
   return {
     id: "default",
@@ -599,6 +610,31 @@ function loadRecords() {
 
 function saveRecords() {
   localStorage.setItem(recordsKey(), JSON.stringify(records));
+}
+
+function loadCloudBackups(accountId = activeAccountId) {
+  try {
+    const raw = localStorage.getItem(cloudBackupsKey(accountId));
+    const backups = raw ? JSON.parse(raw) : [];
+    return Array.isArray(backups) ? backups : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCloudBackups(backups, accountId = activeAccountId) {
+  localStorage.setItem(cloudBackupsKey(accountId), JSON.stringify(backups));
+}
+
+function latestCloudBackup(accountId = activeAccountId) {
+  return loadCloudBackups(accountId)[0] || null;
+}
+
+function shouldRunAutoCloudBackup(accountId = activeAccountId) {
+  if (!records.length) return false;
+  const latest = latestCloudBackup(accountId);
+  if (!latest?.createdAt) return true;
+  return Date.now() - new Date(latest.createdAt).getTime() >= AUTO_BACKUP_INTERVAL_MS;
 }
 
 function openDialog(dialog) {
@@ -1123,6 +1159,7 @@ async function switchAccount(accountId, password = "") {
   render();
   toggleAccountMenu(false);
   window.setTimeout(showImportantReminderDialog, 180);
+  scheduleAutoCloudBackupCheck();
 }
 
 async function createAccount() {
@@ -1681,6 +1718,37 @@ function renderInsights() {
   `;
 }
 
+function renderCloudBackupPanel() {
+  if (!els.cloudBackupList || !els.cloudBackupStatus) return;
+  const backups = loadCloudBackups();
+  const latest = backups[0];
+  els.cloudBackupStatus.textContent = latest
+    ? `上次备份 ${formatDateTime(latest.createdAt)}`
+    : "每 12 小时自动检查";
+
+  if (!backups.length) {
+    els.cloudBackupList.innerHTML = '<p class="empty-mini">暂无云备份。打开 App 超过 12 小时会自动生成，也可以手动备份。</p>';
+    return;
+  }
+
+  els.cloudBackupList.innerHTML = backups
+    .map(
+      (backup) => `
+        <article class="cloud-backup-item">
+          <div>
+            <strong>${formatDateTime(backup.createdAt)}</strong>
+            <span>${backup.mode === "auto" ? "自动备份" : "手动备份"} · ${backup.recordCount || 0} 条记录</span>
+          </div>
+          <div class="cloud-backup-item-actions">
+            <button class="mini-button" type="button" data-copy-backup-link="${escapeHTML(backup.link)}">复制链接</button>
+            <button class="mini-button strong-mini" type="button" data-restore-backup-id="${backup.id}">恢复</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function emptyStateHTML() {
   return document.querySelector("#emptyStateTemplate").innerHTML;
 }
@@ -1698,6 +1766,7 @@ function render() {
   renderBoard(list);
   renderOverviewList(list);
   renderInsights();
+  renderCloudBackupPanel();
   els.resultMeta.textContent = `${account?.name || "当前账号"} · 显示 ${list.length} 条，共 ${records.length} 条`;
   hydrateIcons(document);
 }
@@ -2437,6 +2506,56 @@ async function buildCloudImportLink() {
   return url;
 }
 
+async function runCloudBackup(mode = "auto") {
+  if (cloudBackupRequestPending) return null;
+  if (!records.length) {
+    if (mode === "manual") showToast("没有可备份的记录");
+    return null;
+  }
+  cloudBackupRequestPending = true;
+  if (els.backupNowBtn) els.backupNowBtn.disabled = true;
+  if (els.cloudBackupStatus) {
+    els.cloudBackupStatus.textContent = mode === "manual" ? "正在备份..." : "正在自动备份...";
+  }
+
+  try {
+    const link = await buildCloudImportLink();
+    const shareId = cloudShareIdFromInput(link);
+    const backup = {
+      id: uid(),
+      shareId,
+      link,
+      mode,
+      accountId: activeAccountId,
+      accountName: activeAccount().name,
+      recordCount: records.length,
+      createdAt: new Date().toISOString(),
+    };
+    const nextBackups = [backup, ...loadCloudBackups().filter((item) => item.shareId !== shareId)];
+    saveCloudBackups(nextBackups.slice(0, MAX_CLOUD_BACKUPS));
+    renderCloudBackupPanel();
+    if (mode === "manual") showToast("云备份已完成");
+    return backup;
+  } catch (error) {
+    if (els.cloudBackupStatus) els.cloudBackupStatus.textContent = "云备份失败，稍后再试";
+    if (mode === "manual") showToast("云备份失败");
+    return null;
+  } finally {
+    cloudBackupRequestPending = false;
+    if (els.backupNowBtn) els.backupNowBtn.disabled = false;
+  }
+}
+
+function scheduleAutoCloudBackupCheck() {
+  window.setTimeout(() => {
+    if (shouldRunAutoCloudBackup()) {
+      runCloudBackup("auto");
+    } else {
+      renderCloudBackupPanel();
+    }
+  }, 1200);
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = CLOUD_SHARE_TIMEOUT_MS) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   let timeoutId = null;
@@ -2608,6 +2727,30 @@ async function importCloudShare(id) {
   return normalizeImportedRecords(importPayload);
 }
 
+async function restoreCloudBackup(backupId) {
+  const backup = loadCloudBackups().find((item) => item.id === backupId);
+  if (!backup?.shareId) {
+    showToast("备份记录不存在");
+    return;
+  }
+  const confirmed = await askActionConfirm({
+    title: "恢复云备份？",
+    message: "恢复后会覆盖当前账号下的投递记录，请确认已经不需要保留当前数据。",
+    confirmLabel: "恢复",
+    cancelLabel: "取消",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+
+  try {
+    const nextRecords = await importCloudShare(backup.shareId);
+    applyImportedRecords(nextRecords);
+    showToast("云备份已恢复");
+  } catch {
+    showToast("恢复失败");
+  }
+}
+
 async function importFromLinkInput() {
   const input = els.importLinkInput.value.trim();
   const shareId = cloudShareIdFromInput(input);
@@ -2751,6 +2894,7 @@ function bindEvents() {
   els.saveExportBtn.addEventListener("click", saveExportData);
   els.copyExportBtn.addEventListener("click", copyExportData);
   els.copyImportLinkBtn.addEventListener("click", copyImportLink);
+  els.backupNowBtn.addEventListener("click", () => runCloudBackup("manual"));
   els.importBtn.addEventListener("click", openImportDialog);
   els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
   els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);
@@ -2819,6 +2963,8 @@ function bindEvents() {
     const dueStatusTarget = event.target.closest("[data-due-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
     const reminderOpenTarget = event.target.closest("[data-reminder-open-id]");
+    const copyBackupLinkTarget = event.target.closest("[data-copy-backup-link]");
+    const restoreBackupTarget = event.target.closest("[data-restore-backup-id]");
 
     if (moduleTarget) {
       setModule(moduleTarget.dataset.moduleNav);
@@ -2876,6 +3022,17 @@ function bindEvents() {
 
     if (dueStatusTarget) {
       resolveDueStatus(dueStatusTarget.dataset.dueStatus);
+      return;
+    }
+
+    if (copyBackupLinkTarget) {
+      await copyText(copyBackupLinkTarget.dataset.copyBackupLink);
+      showToast("备份链接已复制");
+      return;
+    }
+
+    if (restoreBackupTarget) {
+      await restoreCloudBackup(restoreBackupTarget.dataset.restoreBackupId);
       return;
     }
 
@@ -3111,6 +3268,7 @@ function init() {
   setModule(activeModule);
   registerServiceWorker();
   window.setTimeout(showImportantReminderDialog, 260);
+  scheduleAutoCloudBackupCheck();
 }
 
 init();

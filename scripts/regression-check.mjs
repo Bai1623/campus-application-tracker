@@ -18,7 +18,17 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.3"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.4"'), "app version should be bumped for this iteration");
+assert(app.includes("const AUTO_BACKUP_INTERVAL_MS = 12 * 60 * 60 * 1000"), "auto backup should run after 12 hours");
+assert(app.includes("const MAX_CLOUD_BACKUPS = 30"), "cloud backup history should keep the latest 30 entries");
+assert(html.includes('id="cloudBackupPanel"'), "profile should include cloud backup center");
+assert(html.includes('id="backupNowBtn"'), "cloud backup center should include manual backup button");
+assert(html.includes('id="cloudBackupList"'), "cloud backup center should show backup history");
+assert(app.includes("scheduleAutoCloudBackupCheck()"), "app should schedule automatic cloud backup on startup");
+assert(app.includes("async function runCloudBackup"), "app should implement cloud backup runner");
+assert(app.includes("function renderCloudBackupPanel"), "app should render cloud backup center");
+assert(app.includes("async function restoreCloudBackup"), "app should support restoring a cloud backup");
+assert(app.includes("saveCloudBackups(nextBackups.slice(0, MAX_CLOUD_BACKUPS))"), "backup history should be trimmed to 30");
 assert(app.includes('const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share"'), "cloud share should use Tencent CloudBase HTTP gateway");
 assert(!app.includes("workers.dev"), "cloud share should not reference Cloudflare workers");
 assert(!html.includes("workers.dev"), "UI examples should not reference Cloudflare workers");

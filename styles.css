@@ -2550,6 +2550,54 @@ svg {
   }
 }
 
+.cloud-backup-panel {
+  gap: 16px;
+}
+
+.cloud-backup-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 180px);
+}
+
+.cloud-backup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cloud-backup-item {
+  align-items: center;
+  background: linear-gradient(135deg, rgba(240, 253, 250, 0.96), rgba(255, 247, 237, 0.92));
+  border: 1px solid rgba(13, 148, 136, 0.16);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.cloud-backup-item strong,
+.cloud-backup-item span {
+  display: block;
+}
+
+.cloud-backup-item strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.cloud-backup-item span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.cloud-backup-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1120px) {
   .board-view {
     grid-template-columns: repeat(2, minmax(240px, 1fr));
@@ -2604,8 +2652,18 @@ svg {
   .form-grid,
   .author-content,
   .link-import-content,
-  .due-status-options {
+  .due-status-options,
+  .cloud-backup-item,
+  .cloud-backup-actions {
     grid-template-columns: 1fr;
+  }
+
+  .cloud-backup-item-actions {
+    justify-content: stretch;
+  }
+
+  .cloud-backup-item-actions .mini-button {
+    flex: 1;
   }
 
   .author-badge,
