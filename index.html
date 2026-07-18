@@ -38,7 +38,7 @@
 
         <div class="global-search">
           <div class="search-box">
-            <button id="searchButton" class="search-button" type="button" aria-label="搜索并跳转到总览结果">
+            <button id="searchButton" class="search-button" type="button" aria-label="搜索并跳转到列表">
               <span data-icon="search"></span>
             </button>
             <input id="searchInput" type="search" placeholder="搜索公司、岗位、城市" autocomplete="off" />
@@ -49,8 +49,8 @@
           <section class="module-hero">
             <div>
               <p class="eyebrow">Overview</p>
-              <h3>筛选、排序和记录在同一页</h3>
-              <p>先看每个阶段的数量，再用城市、排序和逾期条件直接查看全部投递记录。</p>
+              <h3>从状态入口进入，不在首页堆列表</h3>
+              <p>先看每个阶段的数量、城市和逾期条件，再进入投递工作区处理具体记录。</p>
             </div>
           </section>
 
@@ -60,7 +60,7 @@
                 <p class="section-label">状态筛选</p>
                 <h3>选择一个阶段</h3>
               </div>
-              <span class="card-hint">点击后在下方展示结果</span>
+              <span class="card-hint">点击后进入投递列表</span>
             </div>
             <div id="statusFilters" class="filter-stack status-grid"></div>
           </section>
@@ -95,28 +95,23 @@
               </label>
             </div>
           </section>
-
-          <section class="module-card overview-results-card">
-            <div class="module-card-head">
-              <div>
-                <p class="section-label">记录结果</p>
-                <h3>按当前条件排序展示</h3>
-              </div>
-              <div id="resultMeta" class="result-meta"></div>
-            </div>
-            <section id="tableView" class="table-view" aria-label="总览投递列表"></section>
-          </section>
         </section>
 
         <section id="recordsPage" class="app-module hidden" data-module="records" aria-label="投递记录">
           <section class="toolbar">
             <div>
               <p class="eyebrow">Applications</p>
-              <h3>投递看板</h3>
+              <h3>投递工作区</h3>
             </div>
+            <div class="view-tabs" role="tablist" aria-label="视图切换">
+              <button class="tab-button active" type="button" data-view="board">看板</button>
+              <button class="tab-button" type="button" data-view="table">列表</button>
+            </div>
+            <div id="resultMeta" class="result-meta"></div>
           </section>
 
           <section id="boardView" class="board-view" aria-label="状态看板"></section>
+          <section id="tableView" class="table-view hidden" aria-label="投递列表"></section>
         </section>
 
         <section id="remindersPage" class="app-module hidden" data-module="reminders" aria-label="提醒">
@@ -230,7 +225,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.2.1 · 更新于 2026.07.18</span>
+          <span id="appVersionInfo" class="version-info">v2.1.0 · 更新于 2026.07.17</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">
@@ -574,30 +569,6 @@
           <span data-icon="check"></span>
           保存截止时间
         </button>
-      </div>
-    </section>
-
-    <section id="checkStatusDialog" class="record-dialog action-dialog check-status-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="checkStatusTitle">
-      <div class="dialog-head action-dialog-head">
-        <div>
-          <p class="eyebrow">Check Status</p>
-          <h3 id="checkStatusTitle">这次检查后状态变了吗？</h3>
-        </div>
-      </div>
-      <div class="action-dialog-body">
-        <div class="action-dialog-icon">
-          <span data-icon="check"></span>
-        </div>
-        <p id="checkStatusMessage">如果状态没有变化，会把更新时间改为今天，并把下次检查顺延 7 天。</p>
-      </div>
-      <div class="check-status-options">
-        <button class="status-choice no-change" type="button" data-check-status-choice="none">否，状态没变</button>
-        <button class="status-choice" type="button" data-check-status-choice="待测评">待测评</button>
-        <button class="status-choice" type="button" data-check-status-choice="待笔试">待笔试</button>
-        <button class="status-choice" type="button" data-check-status-choice="待面试">待面试</button>
-      </div>
-      <div class="dialog-actions">
-        <button class="text-button" type="button" id="checkStatusCancelBtn">取消</button>
       </div>
     </section>
 

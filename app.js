@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.2.1";
-const APP_UPDATED_AT = "2026.07.18";
+const APP_VERSION = "2.1.0";
+const APP_UPDATED_AT = "2026.07.17";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -139,7 +139,6 @@ let toastTimer = null;
 let swipeState = null;
 let actionConfirmResolve = null;
 let statusDeadlineResolve = null;
-let checkStatusResolve = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -226,10 +225,6 @@ const els = {
   actionConfirmMessage: document.querySelector("#actionConfirmMessage"),
   actionCancelBtn: document.querySelector("#actionCancelBtn"),
   actionConfirmBtn: document.querySelector("#actionConfirmBtn"),
-  checkStatusDialog: document.querySelector("#checkStatusDialog"),
-  checkStatusTitle: document.querySelector("#checkStatusTitle"),
-  checkStatusMessage: document.querySelector("#checkStatusMessage"),
-  checkStatusCancelBtn: document.querySelector("#checkStatusCancelBtn"),
   statusDeadlineDialog: document.querySelector("#statusDeadlineDialog"),
   statusDeadlineTitle: document.querySelector("#statusDeadlineTitle"),
   statusDeadlineMessage: document.querySelector("#statusDeadlineMessage"),
@@ -615,10 +610,6 @@ function closeActiveDialog() {
       statusDeadlineResolve(null);
       statusDeadlineResolve = null;
     }
-    if (activeDialog === els.checkStatusDialog && checkStatusResolve) {
-      checkStatusResolve(null);
-      checkStatusResolve = null;
-    }
     closeDialog(activeDialog);
     if (activeDialog === els.recordDialog) {
       editingId = null;
@@ -689,27 +680,6 @@ function resolveStatusDeadline(value) {
   statusDeadlineResolve(value);
   statusDeadlineResolve = null;
   closeDialog(els.statusDeadlineDialog);
-}
-
-function askCheckStatus(record) {
-  if (checkStatusResolve) {
-    checkStatusResolve(null);
-    checkStatusResolve = null;
-  }
-  els.checkStatusTitle.textContent = `检查「${record.company || "这条记录"}」后状态变了吗？`;
-  els.checkStatusMessage.textContent = "如果状态没有变化，会把更新时间改为今天，并把下次检查顺延 7 天；如果状态变化，请选择新的阶段。";
-  openDialog(els.checkStatusDialog);
-  hydrateIcons(els.checkStatusDialog);
-  return new Promise((resolve) => {
-    checkStatusResolve = resolve;
-  });
-}
-
-function resolveCheckStatus(value) {
-  if (!checkStatusResolve) return;
-  checkStatusResolve(value);
-  checkStatusResolve = null;
-  closeDialog(els.checkStatusDialog);
 }
 
 function confirmStatusDeadline() {
@@ -1704,12 +1674,6 @@ function render() {
   hydrateIcons(document);
 }
 
-function scrollToOverviewResults() {
-  window.setTimeout(() => {
-    els.tableView?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 80);
-}
-
 function renderVersionInfo() {
   if (!els.appVersionInfo) return;
   els.appVersionInfo.textContent = `v${APP_VERSION} · 更新于 ${APP_UPDATED_AT}`;
@@ -1726,14 +1690,15 @@ function submitSearch() {
   els.resultMeta.classList.remove("is-warning");
   if (!query) return;
   if (!list.length) {
-    setModule("overview");
+    setModule("records");
+    setView("table");
     els.resultMeta.textContent = "当前暂无该信息，可以换个关键词试试。";
     els.resultMeta.classList.add("is-warning");
-    scrollToOverviewResults();
     return;
   }
-  setModule("overview");
-  scrollToOverviewResults();
+  setModule("records");
+  setView("table");
+  els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setModule(module) {
@@ -1753,6 +1718,9 @@ function setModule(module) {
     button.classList.toggle("active", button.dataset.moduleNav === module);
   });
   els.accountMenuBtn?.setAttribute("aria-expanded", String(module === "profile"));
+  if (module === "records") {
+    setView(activeView);
+  }
   if (module === "profile") {
     els.insightsView?.classList.remove("hidden");
   }
@@ -1765,6 +1733,7 @@ function setView(view) {
     button.classList.toggle("active", button.dataset.view === view);
   });
   els.boardView.classList.toggle("hidden", view !== "board");
+  els.tableView.classList.toggle("hidden", view !== "table");
 }
 
 function populateSelects() {
@@ -2107,54 +2076,16 @@ function toggleRecordPin(id) {
 function markDueChecked(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
-  record.updatedAt = todayISO();
   record.nextCheckAt = addDaysISO(todayISO(), 7);
   record.history.unshift({
     id: uid(),
     status: record.status,
     updatedAt: todayISO(),
-    note: "已检查，状态未变化",
+    note: "已检查，下次检查顺延 7 天",
   });
   saveRecords();
   render();
   if (selectedId === id) openDrawer(id);
-  showToast("已更新检查时间");
-}
-
-async function handleDueChecked(id) {
-  const record = records.find((item) => item.id === id);
-  if (!record) return;
-  const choice = await askCheckStatus(record);
-  if (!choice) return;
-  if (choice === "none") {
-    markDueChecked(id);
-    return;
-  }
-  await markDueCheckedWithStatus(record, choice);
-}
-
-async function markDueCheckedWithStatus(record, status) {
-  const canContinue = await applyStatusMetrics(record, status, true);
-  if (!canContinue) return;
-  record.status = status;
-  record.updatedAt = todayISO();
-  record.nextCheckAt = addDaysISO(todayISO(), 7);
-  record.note = "今日检查后状态变更";
-  record.history.unshift({
-    id: uid(),
-    status,
-    updatedAt: record.updatedAt,
-    note: "今日检查后状态变更",
-    assessmentAt: status === "待测评" ? record.assessmentAt : "",
-    rejectedAt: status === "已拒绝" ? record.rejectedAt : "",
-  });
-  activeStatus = "all";
-  activeMetric = "all";
-  saveRecords();
-  render();
-  if (selectedId === record.id) openDrawer(record.id);
-  setModule("records");
-  showToast(`已移动到「${status}」看板`);
 }
 
 function deleteRecord(id) {
@@ -2762,7 +2693,6 @@ function bindEvents() {
   els.closeImportantReminderBtn.addEventListener("click", closeImportantReminderDialog);
   els.actionCancelBtn.addEventListener("click", () => resolveActionConfirm(false));
   els.actionConfirmBtn.addEventListener("click", () => resolveActionConfirm(true));
-  els.checkStatusCancelBtn.addEventListener("click", () => resolveCheckStatus(null));
   els.statusDeadlineCancelBtn.addEventListener("click", () => resolveStatusDeadline(null));
   els.statusDeadlineConfirmBtn.addEventListener("click", confirmStatusDeadline);
   els.copyLinkBtn.addEventListener("click", copyShareLink);
@@ -2775,18 +2705,11 @@ function bindEvents() {
   });
   els.searchButton.addEventListener("click", submitSearch);
   els.sourceFilter?.addEventListener("change", render);
-  els.cityFilter.addEventListener("change", () => {
-    render();
-    scrollToOverviewResults();
-  });
-  els.sortSelect.addEventListener("change", () => {
-    render();
-    scrollToOverviewResults();
-  });
+  els.cityFilter.addEventListener("change", render);
+  els.sortSelect.addEventListener("change", render);
   els.overdueMonthsInput.addEventListener("change", () => {
     saveOverdueMonthsSetting();
     render();
-    scrollToOverviewResults();
   });
   els.overdueMonthsInput.addEventListener("input", () => {
     if (!els.overdueMonthsInput.value) return;
@@ -2818,7 +2741,6 @@ function bindEvents() {
     const setMasterPasswordTarget = event.target.closest("[data-set-master-password]");
     const unlockMasterPasswordTarget = event.target.closest("[data-unlock-master-password]");
     const lockMasterPasswordTarget = event.target.closest("[data-lock-master-password]");
-    const checkStatusChoiceTarget = event.target.closest("[data-check-status-choice]");
     const openTarget = event.target.closest("[data-open-id]");
     const editTarget = event.target.closest("[data-edit-id]");
     const deleteTarget = event.target.closest("[data-delete-id]");
@@ -2885,15 +2807,9 @@ function bindEvents() {
       return;
     }
 
-    if (checkStatusChoiceTarget) {
-      event.stopPropagation();
-      resolveCheckStatus(checkStatusChoiceTarget.dataset.checkStatusChoice);
-      return;
-    }
-
     if (dueCheckedTarget) {
       event.stopPropagation();
-      await handleDueChecked(dueCheckedTarget.dataset.dueCheckedId);
+      markDueChecked(dueCheckedTarget.dataset.dueCheckedId);
       return;
     }
 
@@ -2916,18 +2832,20 @@ function bindEvents() {
     if (filterTarget) {
       activeStatus = filterTarget.dataset.filterStatus;
       activeMetric = filterTarget.dataset.filterMetric || "all";
-      setModule("overview");
+      setModule("records");
+      setView("table");
       render();
-      scrollToOverviewResults();
+      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
     if (statTarget) {
       activeStatus = statTarget.dataset.statStatus;
       activeMetric = statTarget.dataset.statMetric;
-      setModule("overview");
+      setModule("records");
+      setView("table");
       render();
-      scrollToOverviewResults();
+      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
