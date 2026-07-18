@@ -862,18 +862,6 @@ label.icon-button:focus-within {
   transform: translateY(-1px);
 }
 
-.profile-action:disabled,
-.export-option:disabled {
-  cursor: wait;
-  opacity: 0.62;
-}
-
-.profile-action.is-loading,
-.export-option.is-loading {
-  border-color: rgba(249, 115, 22, 0.42);
-  background: var(--accent-soft);
-}
-
 .bottom-nav {
   position: fixed;
   left: 50%;
@@ -2106,9 +2094,9 @@ tbody tr:hover {
   background: var(--primary-soft);
 }
 
-.export-option:disabled:hover {
-  border-color: rgba(249, 115, 22, 0.42);
-  background: var(--accent-soft);
+.export-option:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .export-option [data-icon] {
@@ -2121,6 +2109,12 @@ tbody tr:hover {
 .export-option small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.export-feedback {
+  min-height: 20px;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
 .link-import-content {

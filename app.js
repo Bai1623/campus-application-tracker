@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.1.2";
+const APP_VERSION = "2.2.1";
 const APP_UPDATED_AT = "2026.07.18";
 
 const STATUSES = [
@@ -83,7 +83,7 @@ const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
 const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
-const SHARE_UPLOAD_TIMEOUT_MS = 9000;
+const CLOUD_SHARE_TIMEOUT_MS = 8000;
 
 const icons = {
   home:
@@ -137,11 +137,11 @@ let pendingSwitchAccountId = "";
 let pendingDeleteAccountId = "";
 let masterPasswordUnlocked = false;
 let toastTimer = null;
-let exportLinkInProgress = false;
 let swipeState = null;
 let actionConfirmResolve = null;
 let statusDeadlineResolve = null;
 let dueStatusResolve = null;
+let cloudShareRequestPending = false;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -183,6 +183,7 @@ const els = {
   importBtn: document.querySelector("#importBtn"),
   importInput: document.querySelector("#importInput"),
   exportDialog: document.querySelector("#exportDialog"),
+  exportFeedback: document.querySelector("#exportFeedback"),
   closeExportDialogBtn: document.querySelector("#closeExportDialogBtn"),
   shareExportBtn: document.querySelector("#shareExportBtn"),
   saveExportBtn: document.querySelector("#saveExportBtn"),
@@ -488,7 +489,7 @@ function hydrateIcons(root = document) {
   });
 }
 
-function showToast(message = "已完成", duration = 1600) {
+function showToast(message = "已完成") {
   if (!els.toast) return;
   window.clearTimeout(toastTimer);
   els.toast.textContent = message;
@@ -497,7 +498,7 @@ function showToast(message = "已完成", duration = 1600) {
   toastTimer = window.setTimeout(() => {
     els.toast.classList.remove("is-visible");
     toastTimer = window.setTimeout(() => els.toast.classList.add("hidden"), 180);
-  }, duration);
+  }, 1600);
 }
 
 function recordsKey(accountId = activeAccountId) {
@@ -2290,8 +2291,11 @@ function drawerHTML(record) {
   `;
 }
 
-async function exportData() {
-  await copyImportLink({ fallbackToLocal: false });
+function exportData() {
+  setExportFeedback("正在连接云端并生成短链接...");
+  openDialog(els.exportDialog);
+  hydrateIcons(els.exportDialog);
+  copyImportLink();
 }
 
 function exportJsonText() {
@@ -2466,19 +2470,6 @@ async function buildImportLink() {
   return (await buildImportLinkParts()).link;
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = SHARE_UPLOAD_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
 async function buildCloudImportLink() {
   const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share`, {
     method: "POST",
@@ -2491,17 +2482,31 @@ async function buildCloudImportLink() {
   if (!response.ok) throw new Error("Share upload failed");
 
   const data = await response.json();
-  if (!data?.url) throw new Error("Share url missing");
-  return data.url;
+  const shareId = data?.id || data?.key || "";
+  const candidate = data?.url || data?.shortUrl || (shareId ? `${SHARE_API_BASE_URL}/i/${shareId}` : "");
+  if (!candidate) throw new Error("Share url missing");
+
+  const url = new URL(candidate, `${SHARE_API_BASE_URL}/`).toString();
+  if (!cloudShareIdFromInput(url)) throw new Error("Share url invalid");
+  return url;
 }
 
-function setExportLinkLoading(isLoading) {
-  exportLinkInProgress = isLoading;
-  [els.exportBtn, els.copyImportLinkBtn].forEach((button) => {
-    if (!button) return;
-    button.disabled = isLoading;
-    button.classList.toggle("is-loading", isLoading);
+async function fetchWithTimeout(url, options = {}, timeoutMs = CLOUD_SHARE_TIMEOUT_MS) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      controller?.abort();
+      reject(new Error("Cloud request timed out"));
+    }, timeoutMs);
   });
+
+  try {
+    const request = fetch(url, controller ? { ...options, signal: controller.signal } : options);
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  }
 }
 
 function copyText(text) {
@@ -2526,30 +2531,38 @@ function copyText(text) {
   return Promise.resolve();
 }
 
-async function copyImportLink(options = {}) {
-  if (exportLinkInProgress) return;
-  const { fallbackToLocal = true } = options;
-  setExportLinkLoading(true);
-  showToast("正在生成云端短链接...", 2400);
+function setExportFeedback(message = "", tone = "info") {
+  if (!els.exportFeedback) return;
+  els.exportFeedback.textContent = message;
+  els.exportFeedback.classList.toggle("is-error", tone === "error");
+  els.exportFeedback.classList.toggle("is-success", tone === "success");
+}
+
+async function copyImportLink() {
+  if (cloudShareRequestPending) return;
+  cloudShareRequestPending = true;
+  els.copyImportLinkBtn.disabled = true;
+  setExportFeedback("正在连接云端并生成短链接...");
+
   try {
     const link = await buildCloudImportLink();
     await copyText(link);
-    showToast("短链接已复制", 2200);
+    setExportFeedback(`云端短链接已生成并复制：${link}`, "success");
+    showToast("云端短链接已复制");
   } catch (error) {
-    const isTimeout = error?.name === "AbortError";
     try {
-      if (!fallbackToLocal) {
-        showToast(isTimeout ? "云端连接超时，短链接未生成" : "云端短链接生成失败", 3200);
-        return;
-      }
       const { link } = await buildImportLinkParts();
       await copyText(link);
-      showToast(isTimeout ? "云端超时，已复制本地长链接" : "云端失败，已复制本地长链接", 3200);
+      const reason = error?.message?.includes("timed out") ? "云端连接超时" : "云端服务不可用";
+      setExportFeedback(`${reason}，已复制包含数据的本地备份链接。`, "error");
+      showToast("云端失败，已复制备份链接");
     } catch {
-      showToast("复制失败", 2600);
+      setExportFeedback("短链接和备份链接均生成失败，请稍后重试。", "error");
+      showToast("复制失败");
     }
   } finally {
-    setExportLinkLoading(false);
+    cloudShareRequestPending = false;
+    els.copyImportLinkBtn.disabled = false;
   }
 }
 
@@ -2788,7 +2801,7 @@ function bindEvents() {
   els.shareExportBtn.addEventListener("click", shareExportData);
   els.saveExportBtn.addEventListener("click", saveExportData);
   els.copyExportBtn.addEventListener("click", copyExportData);
-  els.copyImportLinkBtn.addEventListener("click", () => copyImportLink({ fallbackToLocal: false }));
+  els.copyImportLinkBtn.addEventListener("click", copyImportLink);
   els.importBtn.addEventListener("click", openImportDialog);
   els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
   els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);
