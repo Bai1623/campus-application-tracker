@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.1.1";
+const APP_VERSION = "2.2.0";
 const APP_UPDATED_AT = "2026.07.18";
 
 const STATUSES = [
