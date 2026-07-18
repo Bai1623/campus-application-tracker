@@ -60,7 +60,7 @@
                 <p class="section-label">状态筛选</p>
                 <h3>选择一个阶段</h3>
               </div>
-              <span class="card-hint">点击后进入投递列表</span>
+              <span class="card-hint">点击后在下方展示记录</span>
             </div>
             <div id="statusFilters" class="filter-stack status-grid"></div>
           </section>
@@ -95,6 +95,17 @@
               </label>
             </div>
           </section>
+
+          <section id="overviewResultsPanel" class="module-card overview-results hidden">
+            <div class="module-card-head">
+              <div>
+                <p class="section-label">筛选结果</p>
+                <h3>投递列表</h3>
+              </div>
+              <div id="resultMeta" class="result-meta"></div>
+            </div>
+            <section id="overviewListView" class="table-view overview-list-view" aria-label="总览投递列表"></section>
+          </section>
         </section>
 
         <section id="recordsPage" class="app-module hidden" data-module="records" aria-label="投递记录">
@@ -103,15 +114,10 @@
               <p class="eyebrow">Applications</p>
               <h3>投递工作区</h3>
             </div>
-            <div class="view-tabs" role="tablist" aria-label="视图切换">
-              <button class="tab-button active" type="button" data-view="board">看板</button>
-              <button class="tab-button" type="button" data-view="table">列表</button>
-            </div>
-            <div id="resultMeta" class="result-meta"></div>
+            <p class="toolbar-hint">按状态分组处理投递记录</p>
           </section>
 
           <section id="boardView" class="board-view" aria-label="状态看板"></section>
-          <section id="tableView" class="table-view hidden" aria-label="投递列表"></section>
         </section>
 
         <section id="remindersPage" class="app-module hidden" data-module="reminders" aria-label="提醒">
@@ -225,7 +231,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.1.0 · 更新于 2026.07.17</span>
+          <span id="appVersionInfo" class="version-info">v2.1.2 · 更新于 2026.07.18</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">
@@ -569,6 +575,26 @@
           <span data-icon="check"></span>
           保存截止时间
         </button>
+      </div>
+    </section>
+
+    <section id="dueStatusDialog" class="record-dialog due-status-dialog hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="dueStatusTitle">
+      <div class="dialog-head action-dialog-head">
+        <div>
+          <p class="eyebrow">Check Result</p>
+          <h3 id="dueStatusTitle">选择新的状态</h3>
+        </div>
+      </div>
+      <div class="due-status-body">
+        <p id="dueStatusMessage">这条记录现在进入哪个阶段？</p>
+        <div class="due-status-options">
+          <button class="status-choice-button" type="button" data-due-status="待测评">待测评</button>
+          <button class="status-choice-button" type="button" data-due-status="待笔试">待笔试</button>
+          <button class="status-choice-button" type="button" data-due-status="待面试">待面试</button>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="text-button" type="button" id="dueStatusCancelBtn">取消</button>
       </div>
     </section>
 

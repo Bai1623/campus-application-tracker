@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.1.0";
-const APP_UPDATED_AT = "2026.07.17";
+const APP_VERSION = "2.1.2";
+const APP_UPDATED_AT = "2026.07.18";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -83,6 +83,7 @@ const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
 const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
+const SHARE_UPLOAD_TIMEOUT_MS = 9000;
 
 const icons = {
   home:
@@ -127,8 +128,8 @@ let accounts = [];
 let activeAccountId = "";
 let activeStatus = "all";
 let activeMetric = "all";
-let activeView = "board";
 let activeModule = "overview";
+let overviewListVisible = false;
 let editingId = null;
 let selectedId = null;
 let draggedId = null;
@@ -136,9 +137,11 @@ let pendingSwitchAccountId = "";
 let pendingDeleteAccountId = "";
 let masterPasswordUnlocked = false;
 let toastTimer = null;
+let exportLinkInProgress = false;
 let swipeState = null;
 let actionConfirmResolve = null;
 let statusDeadlineResolve = null;
+let dueStatusResolve = null;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -163,6 +166,8 @@ const els = {
   recordsPage: document.querySelector("#recordsPage"),
   remindersPage: document.querySelector("#remindersPage"),
   profilePage: document.querySelector("#profilePage"),
+  overviewResultsPanel: document.querySelector("#overviewResultsPanel"),
+  overviewListView: document.querySelector("#overviewListView"),
   statusFilters: document.querySelector("#statusFilters"),
   sourceFilter: document.querySelector("#sourceFilter"),
   cityFilter: document.querySelector("#cityFilter"),
@@ -172,7 +177,6 @@ const els = {
   statsGrid: document.querySelector("#statsGrid"),
   resultMeta: document.querySelector("#resultMeta"),
   boardView: document.querySelector("#boardView"),
-  tableView: document.querySelector("#tableView"),
   insightsView: document.querySelector("#insightsView"),
   addBtn: document.querySelector("#addBtn"),
   exportBtn: document.querySelector("#exportBtn"),
@@ -233,6 +237,10 @@ const els = {
   statusDeadlineError: document.querySelector("#statusDeadlineError"),
   statusDeadlineCancelBtn: document.querySelector("#statusDeadlineCancelBtn"),
   statusDeadlineConfirmBtn: document.querySelector("#statusDeadlineConfirmBtn"),
+  dueStatusDialog: document.querySelector("#dueStatusDialog"),
+  dueStatusTitle: document.querySelector("#dueStatusTitle"),
+  dueStatusMessage: document.querySelector("#dueStatusMessage"),
+  dueStatusCancelBtn: document.querySelector("#dueStatusCancelBtn"),
   appVersionInfo: document.querySelector("#appVersionInfo"),
   toast: document.querySelector("#toast"),
 };
@@ -480,7 +488,7 @@ function hydrateIcons(root = document) {
   });
 }
 
-function showToast(message = "已完成") {
+function showToast(message = "已完成", duration = 1600) {
   if (!els.toast) return;
   window.clearTimeout(toastTimer);
   els.toast.textContent = message;
@@ -489,7 +497,7 @@ function showToast(message = "已完成") {
   toastTimer = window.setTimeout(() => {
     els.toast.classList.remove("is-visible");
     toastTimer = window.setTimeout(() => els.toast.classList.add("hidden"), 180);
-  }, 1600);
+  }, duration);
 }
 
 function recordsKey(accountId = activeAccountId) {
@@ -610,6 +618,10 @@ function closeActiveDialog() {
       statusDeadlineResolve(null);
       statusDeadlineResolve = null;
     }
+    if (activeDialog === els.dueStatusDialog && dueStatusResolve) {
+      dueStatusResolve(null);
+      dueStatusResolve = null;
+    }
     closeDialog(activeDialog);
     if (activeDialog === els.recordDialog) {
       editingId = null;
@@ -698,6 +710,37 @@ function confirmStatusDeadline() {
     deadlineISO,
     note: els.statusDeadlineNoteInput.value.trim(),
   });
+}
+
+function askDueCheckStatusChange(record) {
+  return askActionConfirm({
+    title: "状态是否已变更？",
+    message: `你刚检查了「${record.company || "这家公司"}」。这条投递的状态有变化吗？`,
+    confirmLabel: "是，选择状态",
+    cancelLabel: "否，仅更新检查时间",
+    tone: "check",
+  });
+}
+
+function askDueStatus(record) {
+  if (dueStatusResolve) {
+    dueStatusResolve(null);
+    dueStatusResolve = null;
+  }
+  els.dueStatusTitle.textContent = "状态变更为";
+  els.dueStatusMessage.textContent = `「${record.company || "这家公司"}」现在进入哪个阶段？`;
+  openDialog(els.dueStatusDialog);
+  hydrateIcons(els.dueStatusDialog);
+  return new Promise((resolve) => {
+    dueStatusResolve = resolve;
+  });
+}
+
+function resolveDueStatus(status) {
+  if (!dueStatusResolve) return;
+  dueStatusResolve(status);
+  dueStatusResolve = null;
+  closeDialog(els.dueStatusDialog);
 }
 
 function calendarReminderTime(deadlineISO) {
@@ -1036,6 +1079,7 @@ function renderPasswordManager() {
 function resetFiltersForAccount() {
   activeStatus = "all";
   activeMetric = "all";
+  overviewListVisible = false;
   els.searchInput.value = "";
   if (els.sourceFilter) els.sourceFilter.value = "all";
   els.cityFilter.value = "all";
@@ -1453,18 +1497,25 @@ function recordCardHTML(record, variant = "") {
   `;
 }
 
-function renderTable(list) {
+function renderOverviewList(list) {
+  if (!els.overviewResultsPanel || !els.overviewListView) return;
+  els.overviewResultsPanel.classList.toggle("hidden", !overviewListVisible);
+  if (!overviewListVisible) {
+    els.overviewListView.innerHTML = "";
+    return;
+  }
   if (!list.length) {
-    els.tableView.innerHTML = emptyStateHTML();
+    els.overviewListView.innerHTML = emptyStateHTML();
     return;
   }
 
-  els.tableView.innerHTML = `
+  els.overviewListView.innerHTML = `
     <div class="record-list-cards">
       ${list.map((record) => recordCardHTML(record, "list-card")).join("")}
     </div>
   `;
 }
+
 function renderInsights() {
   const total = records.length;
   const activeRecords = records.filter((record) => record.status !== "已拒绝");
@@ -1668,7 +1719,7 @@ function render() {
   renderDueList();
   renderReminderHub();
   renderBoard(list);
-  renderTable(list);
+  renderOverviewList(list);
   renderInsights();
   els.resultMeta.textContent = `${account?.name || "当前账号"} · 显示 ${list.length} 条，共 ${records.length} 条`;
   hydrateIcons(document);
@@ -1686,19 +1737,18 @@ function handleSearchInput() {
 function submitSearch() {
   const query = normalize(els.searchInput.value);
   const list = getFilteredRecords();
+  if (!query) return;
+  overviewListVisible = true;
+  setModule("overview");
   render();
   els.resultMeta.classList.remove("is-warning");
-  if (!query) return;
   if (!list.length) {
-    setModule("records");
-    setView("table");
     els.resultMeta.textContent = "当前暂无该信息，可以换个关键词试试。";
     els.resultMeta.classList.add("is-warning");
+    els.overviewResultsPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
-  setModule("records");
-  setView("table");
-  els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
+  els.overviewResultsPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setModule(module) {
@@ -1718,22 +1768,19 @@ function setModule(module) {
     button.classList.toggle("active", button.dataset.moduleNav === module);
   });
   els.accountMenuBtn?.setAttribute("aria-expanded", String(module === "profile"));
-  if (module === "records") {
-    setView(activeView);
-  }
   if (module === "profile") {
     els.insightsView?.classList.remove("hidden");
   }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function setView(view) {
-  activeView = view;
-  document.querySelectorAll(".tab-button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
-  });
-  els.boardView.classList.toggle("hidden", view !== "board");
-  els.tableView.classList.toggle("hidden", view !== "table");
+function revealOverviewList(scroll = false) {
+  overviewListVisible = true;
+  setModule("overview");
+  render();
+  if (scroll) {
+    els.overviewResultsPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function populateSelects() {
@@ -2020,11 +2067,21 @@ async function saveFromForm(event) {
   if (selectedId === next.id) openDrawer(next.id);
 }
 
-async function updateRecordStatus(id, status, note = "快速切换状态") {
-  const record = records.find((item) => item.id === id);
-  if (!record || record.status === status) return;
-  const canContinue = await applyStatusMetrics(record, status, true);
-  if (!canContinue) return;
+async function setRecordStatus(record, status, note = "快速切换状态", forceDeadline = true) {
+  if (!record) return false;
+  if (record.status === status) {
+    record.updatedAt = todayISO();
+    record.note = note;
+    record.history.unshift({
+      id: uid(),
+      status,
+      updatedAt: record.updatedAt,
+      note,
+    });
+    return true;
+  }
+  const canContinue = await applyStatusMetrics(record, status, forceDeadline);
+  if (!canContinue) return false;
   record.status = status;
   record.updatedAt = todayISO();
   record.note = note;
@@ -2036,9 +2093,17 @@ async function updateRecordStatus(id, status, note = "快速切换状态") {
     assessmentAt: status === "待测评" ? record.assessmentAt : "",
     rejectedAt: status === "已拒绝" ? record.rejectedAt : "",
   });
+  return true;
+}
+
+async function updateRecordStatus(id, status, note = "快速切换状态") {
+  const record = records.find((item) => item.id === id);
+  const changed = await setRecordStatus(record, status, note, true);
+  if (!changed) return false;
   saveRecords();
   render();
   if (selectedId === id) openDrawer(id);
+  return true;
 }
 
 function markRecordReapply(id) {
@@ -2073,19 +2138,30 @@ function toggleRecordPin(id) {
   showToast(record.pinnedAt ? "已置顶" : "已取消置顶");
 }
 
-function markDueChecked(id) {
+async function markDueChecked(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
+  const hasStatusChange = await askDueCheckStatusChange(record);
+  if (hasStatusChange) {
+    const nextStatus = await askDueStatus(record);
+    if (!nextStatus) return;
+    const changed = await setRecordStatus(record, nextStatus, `已检查，状态变更为${nextStatus}`, true);
+    if (!changed) return;
+  } else {
+    record.updatedAt = todayISO();
+    record.note = "已检查，状态未变更";
+    record.history.unshift({
+      id: uid(),
+      status: record.status,
+      updatedAt: record.updatedAt,
+      note: "已检查，状态未变更",
+    });
+  }
   record.nextCheckAt = addDaysISO(todayISO(), 7);
-  record.history.unshift({
-    id: uid(),
-    status: record.status,
-    updatedAt: todayISO(),
-    note: "已检查，下次检查顺延 7 天",
-  });
   saveRecords();
   render();
   if (selectedId === id) openDrawer(id);
+  showToast(hasStatusChange ? "状态已更新" : "已更新检查时间");
 }
 
 function deleteRecord(id) {
@@ -2214,8 +2290,8 @@ function drawerHTML(record) {
   `;
 }
 
-function exportData() {
-  copyImportLink();
+async function exportData() {
+  await copyImportLink({ fallbackToLocal: false });
 }
 
 function exportJsonText() {
@@ -2390,8 +2466,21 @@ async function buildImportLink() {
   return (await buildImportLinkParts()).link;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = SHARE_UPLOAD_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function buildCloudImportLink() {
-  const response = await fetch(`${SHARE_API_BASE_URL}/api/share`, {
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2404,6 +2493,15 @@ async function buildCloudImportLink() {
   const data = await response.json();
   if (!data?.url) throw new Error("Share url missing");
   return data.url;
+}
+
+function setExportLinkLoading(isLoading) {
+  exportLinkInProgress = isLoading;
+  [els.exportBtn, els.copyImportLinkBtn].forEach((button) => {
+    if (!button) return;
+    button.disabled = isLoading;
+    button.classList.toggle("is-loading", isLoading);
+  });
 }
 
 function copyText(text) {
@@ -2428,19 +2526,30 @@ function copyText(text) {
   return Promise.resolve();
 }
 
-async function copyImportLink() {
+async function copyImportLink(options = {}) {
+  if (exportLinkInProgress) return;
+  const { fallbackToLocal = true } = options;
+  setExportLinkLoading(true);
+  showToast("正在生成云端短链接...", 2400);
   try {
     const link = await buildCloudImportLink();
     await copyText(link);
-    showToast("已复制");
-  } catch {
+    showToast("短链接已复制", 2200);
+  } catch (error) {
+    const isTimeout = error?.name === "AbortError";
     try {
+      if (!fallbackToLocal) {
+        showToast(isTimeout ? "云端连接超时，短链接未生成" : "云端短链接生成失败", 3200);
+        return;
+      }
       const { link } = await buildImportLinkParts();
       await copyText(link);
-      showToast("云端失败，已复制本地链接");
+      showToast(isTimeout ? "云端超时，已复制本地长链接" : "云端失败，已复制本地长链接", 3200);
     } catch {
-      showToast("复制失败");
+      showToast("复制失败", 2600);
     }
+  } finally {
+    setExportLinkLoading(false);
   }
 }
 
@@ -2531,7 +2640,7 @@ function cloudShareIdFromInput(value = "") {
 }
 
 async function importCloudShare(id) {
-  const response = await fetch(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Share not found");
   const payload = await response.json();
   return normalizeImportedRecords(payload);
@@ -2679,7 +2788,7 @@ function bindEvents() {
   els.shareExportBtn.addEventListener("click", shareExportData);
   els.saveExportBtn.addEventListener("click", saveExportData);
   els.copyExportBtn.addEventListener("click", copyExportData);
-  els.copyImportLinkBtn.addEventListener("click", copyImportLink);
+  els.copyImportLinkBtn.addEventListener("click", () => copyImportLink({ fallbackToLocal: false }));
   els.importBtn.addEventListener("click", openImportDialog);
   els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
   els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);
@@ -2695,6 +2804,7 @@ function bindEvents() {
   els.actionConfirmBtn.addEventListener("click", () => resolveActionConfirm(true));
   els.statusDeadlineCancelBtn.addEventListener("click", () => resolveStatusDeadline(null));
   els.statusDeadlineConfirmBtn.addEventListener("click", confirmStatusDeadline);
+  els.dueStatusCancelBtn.addEventListener("click", () => resolveDueStatus(null));
   els.copyLinkBtn.addEventListener("click", copyShareLink);
   els.nativeShareBtn.addEventListener("click", nativeShareLink);
   els.searchInput.addEventListener("input", handleSearchInput);
@@ -2705,16 +2815,16 @@ function bindEvents() {
   });
   els.searchButton.addEventListener("click", submitSearch);
   els.sourceFilter?.addEventListener("change", render);
-  els.cityFilter.addEventListener("change", render);
-  els.sortSelect.addEventListener("change", render);
+  els.cityFilter.addEventListener("change", () => revealOverviewList(true));
+  els.sortSelect.addEventListener("change", () => revealOverviewList(true));
   els.overdueMonthsInput.addEventListener("change", () => {
     saveOverdueMonthsSetting();
-    render();
+    revealOverviewList(true);
   });
   els.overdueMonthsInput.addEventListener("input", () => {
     if (!els.overdueMonthsInput.value) return;
     saveOverdueMonthsSetting();
-    render();
+    revealOverviewList(false);
   });
   els.recordForm.addEventListener("submit", saveFromForm);
   els.recordForm.elements.sourceType.addEventListener("change", updateSourceLabel);
@@ -2725,10 +2835,6 @@ function bindEvents() {
   els.deleteFromFormBtn.addEventListener("click", () => editingId && deleteRecord(editingId));
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   els.modalBackdrop?.addEventListener("click", closeActiveDialog);
-
-  document.querySelectorAll(".tab-button").forEach((button) => {
-    button.addEventListener("click", () => setView(button.dataset.view));
-  });
 
   document.addEventListener("click", async (event) => {
     const moduleTarget = event.target.closest("[data-module-nav]");
@@ -2750,6 +2856,7 @@ function bindEvents() {
     const markReapplyTarget = event.target.closest("[data-mark-reapply-id]");
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
+    const dueStatusTarget = event.target.closest("[data-due-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
     const reminderOpenTarget = event.target.closest("[data-reminder-open-id]");
 
@@ -2807,9 +2914,14 @@ function bindEvents() {
       return;
     }
 
+    if (dueStatusTarget) {
+      resolveDueStatus(dueStatusTarget.dataset.dueStatus);
+      return;
+    }
+
     if (dueCheckedTarget) {
       event.stopPropagation();
-      markDueChecked(dueCheckedTarget.dataset.dueCheckedId);
+      await markDueChecked(dueCheckedTarget.dataset.dueCheckedId);
       return;
     }
 
@@ -2832,20 +2944,14 @@ function bindEvents() {
     if (filterTarget) {
       activeStatus = filterTarget.dataset.filterStatus;
       activeMetric = filterTarget.dataset.filterMetric || "all";
-      setModule("records");
-      setView("table");
-      render();
-      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
+      revealOverviewList(true);
       return;
     }
 
     if (statTarget) {
       activeStatus = statTarget.dataset.statStatus;
       activeMetric = statTarget.dataset.statMetric;
-      setModule("records");
-      setView("table");
-      render();
-      els.tableView.scrollIntoView({ behavior: "smooth", block: "start" });
+      revealOverviewList(true);
       return;
     }
 
@@ -3043,7 +3149,6 @@ function init() {
   render();
   bindEvents();
   setModule(activeModule);
-  setView(activeView);
   registerServiceWorker();
   window.setTimeout(showImportantReminderDialog, 260);
 }
