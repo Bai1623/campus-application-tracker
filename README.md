@@ -32,6 +32,20 @@
 - 支持手机浏览器打开和添加到主屏幕
 - 支持离线缓存，作为 PWA 使用
 
+## APK 安装
+
+Android 安装包位于 `releases/秋招投递-debug.apk`。当前安装包已完成 APK 资源对齐，并通过 Android v1、v2、v3 签名校验。
+
+当前修复包使用新的本地调试证书。如果手机已经安装过旧证书签名的同包名版本，请先在旧版中导出 JSON 备份，然后卸载旧版、安装当前 APK，最后导入 JSON 恢复数据。Android 不允许使用不同证书直接覆盖安装同一包名的应用。
+
+后续更新 APK 内置网页资源时，使用 Android SDK Build Tools 中的 `zipalign` 和 `apksigner` 重新打包：
+
+```powershell
+.\scripts\package-apk.ps1 -BuildToolsDir "C:\Android\Sdk\build-tools\35.0.1"
+```
+
+脚本会在写入发布文件前自动验证资源对齐和 Android 签名，避免生成只能通过 JAR 校验、但无法被手机安装器解析的 APK。
+
 ## 使用方式
 
 直接打开 `index.html` 即可使用。

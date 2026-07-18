@@ -250,6 +250,15 @@
 - 同步提升 PWA 离线缓存版本，避免浏览器继续使用旧的页面资源。
 - 重新生成仓库内 `releases/秋招投递-debug.apk`，使 APK 内置资源同步到本次迭代。
 
+### 33. 2.2.0 APK 安装修复
+
+- 修复直接重写 APK 压缩包后导致手机安装器提示“解析软件包时出现问题（33）/ packageInfo is null”的问题。
+- 问题原因为重新打包后的 APK 缺少 Android v2 及以上签名，同时未压缩资源没有按 APK 规范进行 4 字节对齐。
+- 改用 Android 官方 `zipalign` 对安装包进行资源对齐，再通过 `apksigner` 生成 v1、v2、v3 三种签名。
+- 新增 `scripts/package-apk.ps1`，统一执行网页资源替换、资源对齐、Android 签名和发布前校验，供后续迭代重复使用。
+- 发布前使用 `aapt dump badging` 验证 Manifest 和包信息，使用 `zipalign -c` 验证资源对齐，使用 `apksigner verify` 验证 Android 签名方案。
+- 当前修复包使用新的本地调试证书；若手机已经安装旧证书签名的同包名版本，需要先在旧版中导出 JSON 备份，再卸载旧版、安装修复包并导入备份。
+
 ## Git 提交索引
 
 | 提交 | 日期 | 内容 |
