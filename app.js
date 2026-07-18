@@ -4,7 +4,7 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.2.2";
 const APP_UPDATED_AT = "2026.07.18";
 
 const STATUSES = [
@@ -24,10 +24,12 @@ const QUICK_FLOW_STATUSES = STATUSES.filter((status) => status.id !== "待初筛
 
 const SOURCE_TYPES = ["官网", "公众号", "牛客", "Boss", "实习僧", "自定义"];
 const CITY_OPTIONS = [
+  "全国任意城市",
   "杭州",
   "北京",
   "深圳",
   "广州",
+  "上海",
   "保定",
   "长春",
   "长沙",
@@ -55,7 +57,6 @@ const CITY_OPTIONS = [
   "宁波",
   "青岛",
   "泉州",
-  "上海",
   "绍兴",
   "沈阳",
   "石家庄",
@@ -213,8 +214,6 @@ const els = {
   cancelDialogBtn: document.querySelector("#cancelDialogBtn"),
   deleteFromFormBtn: document.querySelector("#deleteFromFormBtn"),
   formError: document.querySelector("#formError"),
-  sourceDetailField: document.querySelector("#sourceDetailField"),
-  sourceDetailLabel: document.querySelector("#sourceDetailLabel"),
   importantReminderAtField: document.querySelector("#importantReminderAtField"),
   importantReminderHoursField: document.querySelector("#importantReminderHoursField"),
   importantReminderNoteField: document.querySelector("#importantReminderNoteField"),
@@ -246,31 +245,43 @@ const els = {
   toast: document.querySelector("#toast"),
 };
 
+function formatLocalDateISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dateISO) {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return formatLocalDateISO(new Date());
 }
 
 function addDaysISO(dateISO, days) {
-  const date = new Date(`${dateISO}T00:00:00`);
+  const date = parseLocalDate(dateISO);
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateISO(date);
 }
 
 function addMonthsISO(dateISO, months) {
-  const date = new Date(`${dateISO}T00:00:00`);
+  const date = parseLocalDate(dateISO);
   date.setMonth(date.getMonth() + months);
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateISO(date);
 }
 
 function daysBetween(startISO, endISO = todayISO()) {
-  const start = new Date(`${startISO}T00:00:00`);
-  const end = new Date(`${endISO}T00:00:00`);
+  const start = parseLocalDate(startISO);
+  const end = parseLocalDate(endISO);
   return Math.floor((end - start) / 86400000);
 }
 
 function monthsBetween(startISO, endISO = todayISO()) {
-  const start = new Date(`${startISO}T00:00:00`);
-  const end = new Date(`${endISO}T00:00:00`);
+  const start = parseLocalDate(startISO);
+  const end = parseLocalDate(endISO);
   let months = (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
   if (end.getDate() < start.getDate()) months -= 1;
   return Math.max(0, months);
@@ -795,7 +806,6 @@ async function offerCalendarCreation(record, status, deadlineISO, note = "") {
 
 function getFilteredRecords() {
   const query = normalize(els.searchInput.value);
-  const source = els.sourceFilter?.value || "all";
   const city = els.cityFilter.value;
   const list = records.filter((record) => {
     const haystack = normalize(
@@ -803,21 +813,18 @@ function getFilteredRecords() {
         record.company,
         record.position,
         cityText(record),
-        record.sourceType,
-        record.sourceDetail,
         record.note,
         stars(normalizeImportance(record)),
       ].join(" "),
     );
     const statusMatch = activeStatus === "all" || record.status === activeStatus;
-    const sourceMatch = source === "all" || record.sourceType === source;
     const cityMatch = city === "all" || recordCities(record).includes(city);
     const queryMatch = !query || haystack.includes(query);
     const metricMatch =
       activeMetric === "all" ||
       (activeMetric === "overdue" && isUpdateOverdue(record)) ||
       (activeMetric === "reapply" && isReapplyRecord(record));
-    return statusMatch && sourceMatch && cityMatch && queryMatch && metricMatch;
+    return statusMatch && cityMatch && queryMatch && metricMatch;
   });
 
   return list.sort((a, b) => {
@@ -1287,6 +1294,7 @@ function deleteAccount() {
 }
 
 function renderStats() {
+  if (!els.statsGrid) return;
   const stats = [
     { label: "总投递", value: records.length, status: "all", metric: "all" },
     ...STATUSES.map((status) => ({
@@ -1462,7 +1470,6 @@ function recordCardHTML(record, variant = "") {
     pinned ? `<span class="tag pin-tag">已置顶</span>` : "",
     `<span class="tag status-badge">${escapeHTML(record.status)}</span>`,
     `<span class="tag city-tag">${escapeHTML(cityText(record))}</span>`,
-    `<span class="tag">${escapeHTML(record.sourceType)}</span>`,
     record.importantReminderAt
       ? `<span class="tag ${activeReminder ? "danger" : "reminder-tag"}">重要提醒 · ${formatDateTime(record.importantReminderAt)}</span>`
       : "",
@@ -1535,12 +1542,6 @@ function renderInsights() {
     count: records.filter((record) => record.status === status.id).length,
     status: status.id,
   }));
-  const sourceRows = SOURCE_TYPES.map((source) => ({
-    label: source,
-    count: records.filter((record) => record.sourceType === source).length,
-  }))
-    .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count);
   const cityRows = CITY_OPTIONS.map((city) => ({
     label: city,
     count: records.filter((record) => recordCities(record).includes(city)).length,
@@ -1635,30 +1636,6 @@ function renderInsights() {
 
       <section class="insight-panel">
         <div class="insight-head">
-          <h3>来源分布</h3>
-          <span>判断渠道投入</span>
-        </div>
-        <div class="bar-list">
-          ${
-            sourceRows.length
-              ? sourceRows
-                  .map(
-                    (row) => `
-                      <div class="bar-row">
-                        <span>${escapeHTML(row.label)}</span>
-                        <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
-                        <strong>${row.count}</strong>
-                      </div>
-                    `,
-                  )
-                  .join("")
-              : '<p class="empty-mini">添加记录后会显示来源统计。</p>'
-          }
-        </div>
-      </section>
-
-      <section class="insight-panel">
-        <div class="insight-head">
           <h3>城市分布</h3>
           <span>前 10 个投递城市</span>
         </div>
@@ -1714,7 +1691,6 @@ function render() {
   els.resultMeta.classList.remove("is-warning");
   renderAccountPanel();
   renderStatusFilters();
-  renderSourceFilter();
   renderCityFilter();
   renderStats();
   renderDueList();
@@ -1786,12 +1762,8 @@ function revealOverviewList(scroll = false) {
 
 function populateSelects() {
   const statusSelect = els.recordForm.elements.status;
-  const sourceSelect = els.recordForm.elements.sourceType;
   const citySelect = els.recordForm.elements.cities;
   populateStatusSelect(statusSelect, CREATE_STATUSES);
-  sourceSelect.innerHTML = SOURCE_TYPES.map(
-    (source) => `<option value="${source}">${source}</option>`,
-  ).join("");
   citySelect.innerHTML = [
     ...CITY_OPTIONS.map((city) => `<option value="${city}">${city}</option>`),
   ].join("");
@@ -1814,13 +1786,11 @@ function openRecordDialog(record = null) {
   populateStatusSelect(form.elements.status, record ? STATUSES : CREATE_STATUSES);
   form.elements.company.value = record?.company || "";
   form.elements.position.value = record?.position || "";
-  const selectedCities = recordCities(record).slice(0, MAX_RECORD_CITIES);
+  const selectedCities = record ? recordCities(record).slice(0, MAX_RECORD_CITIES) : [];
   Array.from(form.elements.cities.options).forEach((option) => {
     option.selected = selectedCities.includes(option.value);
   });
   form.elements.status.value = record?.status || "待初筛";
-  form.elements.sourceType.value = record?.sourceType || "官网";
-  form.elements.sourceDetail.value = record?.sourceDetail || "";
   form.elements.appliedAt.value = record?.appliedAt || todayISO();
   form.elements.updatedAt.value = record?.updatedAt || todayISO();
   form.elements.nextCheckAt.value = record?.nextCheckAt || addDaysISO(todayISO(), 7);
@@ -1834,7 +1804,6 @@ function openRecordDialog(record = null) {
   form.elements.importantReminderHours.value = "";
   form.elements.importantReminderNote.value = record?.importantReminderNote || "";
   form.elements.note.value = record?.note || "";
-  updateSourceLabel();
   updateImportantReminderFields();
   openDialog(els.recordDialog);
 }
@@ -1842,19 +1811,6 @@ function openRecordDialog(record = null) {
 function closeRecordDialog() {
   closeDialog(els.recordDialog);
   editingId = null;
-}
-
-function updateSourceLabel() {
-  const type = els.recordForm.elements.sourceType.value;
-  const showUrl = type === "自定义";
-  if (els.sourceDetailField) {
-    els.sourceDetailField.classList.toggle("hidden", !showUrl);
-  }
-  els.sourceDetailLabel.textContent = "自定义网址";
-  els.recordForm.elements.sourceDetail.placeholder = "https://example.com/recruit";
-  if (!showUrl) {
-    els.recordForm.elements.sourceDetail.value = "";
-  }
 }
 
 function updateImportantReminderFields() {
@@ -1905,13 +1861,13 @@ function formToRecord(base = null) {
     company: data.company.trim(),
     position: data.position.trim(),
     cities,
-    sourceType: data.sourceType,
-    sourceDetail: data.sourceDetail.trim(),
+    sourceType: base?.sourceType || "官网",
+    sourceDetail: base?.sourceDetail || "",
     status: data.status,
     createdAt: base ? recordCreatedAt(base) : new Date().toISOString(),
     appliedAt: data.appliedAt || now,
     updatedAt: data.updatedAt || now,
-    nextCheckAt: data.nextCheckAt || "",
+    nextCheckAt: data.nextCheckAt || addDaysISO(now, 7),
     importance: data.importance || normalizeImportance(base),
     pinnedAt: base?.pinnedAt || "",
     importantReminderType: importantReminderAt ? "deadline" : "none",
@@ -1986,7 +1942,6 @@ function validateRecord(record) {
   const cities = recordCities(record);
   if (!cities.length) return "城市必须至少选择 1 个。";
   if (cities.length > MAX_RECORD_CITIES) return `城市最多选择 ${MAX_RECORD_CITIES} 个。`;
-  if (!SOURCE_TYPES.includes(record.sourceType)) return "来源类型必须选择。";
   if (!record.appliedAt || !record.updatedAt) return "投递日期和更新时间必须填写。";
   const reminderType = els.recordForm.elements.importantReminderType.value;
   if (!["none", "deadline", "relative"].includes(reminderType)) return "重要提醒必须选择。";
@@ -1994,14 +1949,6 @@ function validateRecord(record) {
   if (reminderType === "relative") {
     const hours = Number(els.recordForm.elements.importantReminderHours.value || 0);
     if (!Number.isFinite(hours) || hours <= 0) return "请填写从现在起多少小时。";
-  }
-  if (record.sourceType === "自定义") {
-    if (!record.sourceDetail) return "自定义来源需要填写网址。";
-    try {
-      new URL(/^https?:\/\//i.test(record.sourceDetail) ? record.sourceDetail : `https://${record.sourceDetail}`);
-    } catch {
-      return "来源网址格式不太对。";
-    }
   }
   if (DEADLINE_REQUIRED_STATUSES.has(record.status) && !record.importantReminderAt) {
     return `${record.status} 需要设置截止时间。`;
@@ -2239,7 +2186,6 @@ function drawerHTML(record) {
           <span>岗位</span><strong>${escapeHTML(record.position || "未填写")}</strong>
           <span>城市</span><strong>${escapeHTML(cityText(record))}</strong>
           <span>重要程度</span><strong>${stars(importance)} · ${importance} 星</strong>
-          <span>来源</span><strong>${sourceToHTML(record)}</strong>
           <span>投递日期</span><strong>${formatDate(record.appliedAt)}</strong>
           <span>更新时间</span><strong>${formatDate(record.updatedAt)}</strong>
           <span>推进耗时</span><strong>${assessmentInfo}</strong>
@@ -2310,7 +2256,7 @@ function normalizeImportedRecords(input) {
     company: record.company || "",
     position: record.position || "",
     cities: recordCities(record).slice(0, MAX_RECORD_CITIES),
-    sourceType: SOURCE_TYPES.includes(record.sourceType) ? record.sourceType : "官网",
+    sourceType: record.sourceType || "官网",
     sourceDetail: record.sourceDetail || record.sourceName || record.sourceUrl || "",
     status: STATUSES.some((status) => status.id === record.status) ? record.status : "待初筛",
     createdAt: record.createdAt || new Date(`${record.appliedAt || todayISO()}T00:00:00`).toISOString(),
@@ -2827,7 +2773,6 @@ function bindEvents() {
     submitSearch();
   });
   els.searchButton.addEventListener("click", submitSearch);
-  els.sourceFilter?.addEventListener("change", render);
   els.cityFilter.addEventListener("change", () => revealOverviewList(true));
   els.sortSelect.addEventListener("change", () => revealOverviewList(true));
   els.overdueMonthsInput.addEventListener("change", () => {
@@ -2840,7 +2785,6 @@ function bindEvents() {
     revealOverviewList(false);
   });
   els.recordForm.addEventListener("submit", saveFromForm);
-  els.recordForm.elements.sourceType.addEventListener("change", updateSourceLabel);
   els.recordForm.elements.importantReminderType.addEventListener("change", updateImportantReminderFields);
   els.recordForm.elements.cities.addEventListener("change", enforceCitySelectionLimit);
   els.closeDialogBtn.addEventListener("click", closeRecordDialog);
