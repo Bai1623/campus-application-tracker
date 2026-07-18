@@ -5,7 +5,8 @@ const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
-const APP_VERSION = "2.2.4";
+const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
+const APP_VERSION = "2.2.5";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -158,6 +159,7 @@ const els = {
   accountList: document.querySelector("#accountList"),
   newAccountNameInput: document.querySelector("#newAccountNameInput"),
   newAccountPasswordInput: document.querySelector("#newAccountPasswordInput"),
+  newAccountSyncCodeInput: document.querySelector("#newAccountSyncCodeInput"),
   createAccountBtn: document.querySelector("#createAccountBtn"),
   accountPasswordGate: document.querySelector("#accountPasswordGate"),
   accountRecoveryList: document.querySelector("#accountRecoveryList"),
@@ -197,6 +199,12 @@ const els = {
   cloudBackupStatus: document.querySelector("#cloudBackupStatus"),
   cloudBackupList: document.querySelector("#cloudBackupList"),
   backupNowBtn: document.querySelector("#backupNowBtn"),
+  cloudSyncStatus: document.querySelector("#cloudSyncStatus"),
+  cloudSyncFeedback: document.querySelector("#cloudSyncFeedback"),
+  currentSyncCodeInput: document.querySelector("#currentSyncCodeInput"),
+  enableCloudSyncBtn: document.querySelector("#enableCloudSyncBtn"),
+  checkCloudSyncBtn: document.querySelector("#checkCloudSyncBtn"),
+  disableCloudSyncBtn: document.querySelector("#disableCloudSyncBtn"),
   linkImportDialog: document.querySelector("#linkImportDialog"),
   chooseJsonImportBtn: document.querySelector("#chooseJsonImportBtn"),
   importLinkInput: document.querySelector("#importLinkInput"),
@@ -410,6 +418,14 @@ async function hashPassword(password, salt) {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizeSyncAccountName(name = "") {
+  return String(name).trim().toLowerCase();
+}
+
+async function buildCloudSyncKey(accountName, syncCode) {
+  return hashPassword(syncCode, `cloud-sync:${normalizeSyncAccountName(accountName)}`);
+}
+
 function accountHasPassword(account) {
   return Boolean(account?.passwordSalt && account?.passwordHash);
 }
@@ -527,6 +543,10 @@ function cloudBackupsKey(accountId = activeAccountId) {
   return `${CLOUD_BACKUP_PREFIX}${accountId}`;
 }
 
+function cloudSyncSettingsKey(accountId = activeAccountId) {
+  return `${CLOUD_SYNC_SETTINGS_PREFIX}${accountId}`;
+}
+
 function defaultAccount() {
   return {
     id: "default",
@@ -624,6 +644,24 @@ function loadCloudBackups(accountId = activeAccountId) {
 
 function saveCloudBackups(backups, accountId = activeAccountId) {
   localStorage.setItem(cloudBackupsKey(accountId), JSON.stringify(backups));
+}
+
+function loadCloudSyncSettings(accountId = activeAccountId) {
+  try {
+    const raw = localStorage.getItem(cloudSyncSettingsKey(accountId));
+    const settings = raw ? JSON.parse(raw) : null;
+    return settings?.syncKey ? settings : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCloudSyncSettings(settings, accountId = activeAccountId) {
+  localStorage.setItem(cloudSyncSettingsKey(accountId), JSON.stringify(settings));
+}
+
+function clearCloudSyncSettings(accountId = activeAccountId) {
+  localStorage.removeItem(cloudSyncSettingsKey(accountId));
 }
 
 function latestCloudBackup(accountId = activeAccountId) {
@@ -1165,6 +1203,7 @@ async function switchAccount(accountId, password = "") {
 async function createAccount() {
   const normalizedName = els.newAccountNameInput.value.trim();
   const password = els.newAccountPasswordInput.value;
+  const syncCode = els.newAccountSyncCodeInput.value.trim();
   if (!normalizedName) {
     setAccountFeedback("先给新账号起个名字。", "error");
     els.newAccountNameInput.focus();
@@ -1190,9 +1229,14 @@ async function createAccount() {
   resetFiltersForAccount();
   els.newAccountNameInput.value = "";
   els.newAccountPasswordInput.value = "";
+  els.newAccountSyncCodeInput.value = "";
   setAccountFeedback(`已切换到「${account.name}」。`, "success");
   render();
   toggleAccountMenu(false);
+  if (syncCode) {
+    await enableCloudSyncForActiveAccount(syncCode, { silent: true });
+    await checkAndOfferCloudSyncRestore("create");
+  }
 }
 
 function renameAccount() {
@@ -1722,9 +1766,16 @@ function renderCloudBackupPanel() {
   if (!els.cloudBackupList || !els.cloudBackupStatus) return;
   const backups = loadCloudBackups();
   const latest = backups[0];
+  const syncSettings = loadCloudSyncSettings();
   els.cloudBackupStatus.textContent = latest
     ? `上次备份 ${formatDateTime(latest.createdAt)}`
     : "每 12 小时自动检查";
+  if (els.cloudSyncStatus) {
+    els.cloudSyncStatus.textContent = syncSettings
+      ? `已开启 · ${syncSettings.accountName || activeAccount().name}`
+      : "未开启";
+  }
+  if (els.disableCloudSyncBtn) els.disableCloudSyncBtn.disabled = !syncSettings;
 
   if (!backups.length) {
     els.cloudBackupList.innerHTML = '<p class="empty-mini">暂无云备份。打开 App 超过 12 小时会自动生成，也可以手动备份。</p>';
@@ -2496,7 +2547,7 @@ async function buildCloudImportLink() {
 
   if (!response.ok) throw new Error("Share upload failed");
 
-  const data = await response.json();
+  const data = unwrapCloudResponse(await response.json());
   const shareId = data?.id || data?.key || "";
   const candidate = shareId ? `${SHARE_API_BASE_URL}?id=${encodeURIComponent(shareId)}` : data?.url || data?.shortUrl || "";
   if (!candidate) throw new Error("Share url missing");
@@ -2504,6 +2555,134 @@ async function buildCloudImportLink() {
   const url = new URL(candidate, SHARE_API_BASE_URL).toString();
   if (!cloudShareIdFromInput(url)) throw new Error("Share url invalid");
   return url;
+}
+
+function unwrapCloudResponse(data) {
+  if (typeof data?.body === "string") {
+    try {
+      return JSON.parse(data.body);
+    } catch {
+      return data;
+    }
+  }
+  return data;
+}
+
+async function postCloudShareAction(payload) {
+  const response = await fetchWithTimeout(SHARE_API_BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) throw new Error("Cloud action failed");
+  return unwrapCloudResponse(await response.json());
+}
+
+function setCloudSyncFeedback(message = "同一账号在其他设备输入相同云同步码，即可恢复最新云备份。", tone = "info") {
+  if (!els.cloudSyncFeedback) return;
+  els.cloudSyncFeedback.textContent = message;
+  els.cloudSyncFeedback.classList.toggle("is-error", tone === "error");
+  els.cloudSyncFeedback.classList.toggle("is-success", tone === "success");
+}
+
+async function enableCloudSyncForActiveAccount(syncCode, options = {}) {
+  const code = syncCode.trim();
+  if (!code) {
+    setCloudSyncFeedback("请输入云同步码。", "error");
+    els.currentSyncCodeInput?.focus();
+    return null;
+  }
+  const account = activeAccount();
+  const settings = {
+    enabled: true,
+    accountId: account.id,
+    accountName: account.name,
+    syncKey: await buildCloudSyncKey(account.name, code),
+    updatedAt: new Date().toISOString(),
+  };
+  saveCloudSyncSettings(settings);
+  if (els.currentSyncCodeInput) els.currentSyncCodeInput.value = "";
+  renderCloudBackupPanel();
+  if (!options.silent) setCloudSyncFeedback("云同步已开启。后续云备份会登记为这个账号的最新备份。", "success");
+  return settings;
+}
+
+async function publishCloudSyncLatest(backup) {
+  const settings = loadCloudSyncSettings();
+  if (!settings?.syncKey || !backup?.shareId) return null;
+  const result = await postCloudShareAction({
+    action: "sync-put",
+    syncKey: settings.syncKey,
+    latestShareId: backup.shareId,
+    accountName: settings.accountName || activeAccount().name,
+    recordCount: backup.recordCount || records.length,
+    backupCreatedAt: backup.createdAt,
+  });
+  return result?.latest || result;
+}
+
+async function fetchCloudSyncLatest(settings = loadCloudSyncSettings()) {
+  if (!settings?.syncKey) return null;
+  const result = await postCloudShareAction({
+    action: "sync-get",
+    syncKey: settings.syncKey,
+  });
+  return result?.latest || result;
+}
+
+async function checkAndOfferCloudSyncRestore(trigger = "manual") {
+  const settings = loadCloudSyncSettings();
+  if (!settings?.syncKey) {
+    if (trigger === "manual") setCloudSyncFeedback("当前账号还没有开启云同步。", "error");
+    return false;
+  }
+
+  if (trigger === "manual") setCloudSyncFeedback("正在检查云端最新备份...");
+  try {
+    const latest = await fetchCloudSyncLatest(settings);
+    const latestShareId = latest?.latestShareId || latest?.shareId || "";
+    if (!latestShareId) {
+      setCloudSyncFeedback("云端暂时没有这个账号的备份。", "info");
+      return false;
+    }
+
+    const confirmed = await askActionConfirm({
+      title: "检测到云端备份",
+      message: `云端有「${settings.accountName || activeAccount().name}」的最新备份，约 ${latest.recordCount || 0} 条记录。是否恢复到当前设备？`,
+      confirmLabel: "恢复",
+      cancelLabel: "取消",
+      tone: "info",
+    });
+    if (!confirmed) {
+      setCloudSyncFeedback("已保留当前设备数据。", "info");
+      return false;
+    }
+
+    const nextRecords = await importCloudShare(latestShareId);
+    applyImportedRecords(nextRecords);
+    setCloudSyncFeedback("已恢复云端最新备份。", "success");
+    showToast("云端备份已恢复");
+    return true;
+  } catch {
+    setCloudSyncFeedback("云端同步检查失败，请确认腾讯云函数已升级。", "error");
+    if (trigger === "manual") showToast("同步检查失败");
+    return false;
+  }
+}
+
+async function enableCloudSyncFromInput() {
+  const settings = await enableCloudSyncForActiveAccount(els.currentSyncCodeInput.value);
+  if (settings) await checkAndOfferCloudSyncRestore("manual");
+}
+
+function disableCloudSyncForActiveAccount() {
+  clearCloudSyncSettings();
+  if (els.currentSyncCodeInput) els.currentSyncCodeInput.value = "";
+  renderCloudBackupPanel();
+  setCloudSyncFeedback("已关闭当前账号云同步；本地记录和已有云备份不会删除。", "info");
 }
 
 async function runCloudBackup(mode = "auto") {
@@ -2531,10 +2710,21 @@ async function runCloudBackup(mode = "auto") {
       recordCount: records.length,
       createdAt: new Date().toISOString(),
     };
+    try {
+      const latestSync = await publishCloudSyncLatest(backup);
+      if (latestSync) backup.cloudSyncPublishedAt = new Date().toISOString();
+    } catch {
+      backup.cloudSyncErrorAt = new Date().toISOString();
+    }
     const nextBackups = [backup, ...loadCloudBackups().filter((item) => item.shareId !== shareId)];
     saveCloudBackups(nextBackups.slice(0, MAX_CLOUD_BACKUPS));
     renderCloudBackupPanel();
-    if (mode === "manual") showToast("云备份已完成");
+    if (backup.cloudSyncErrorAt) {
+      setCloudSyncFeedback("云备份已完成，但账号同步索引更新失败。", "error");
+    } else if (backup.cloudSyncPublishedAt) {
+      setCloudSyncFeedback("云备份已完成，并已登记为当前账号最新云备份。", "success");
+    }
+    if (mode === "manual") showToast(backup.cloudSyncErrorAt ? "备份完成，同步索引失败" : "云备份已完成");
     return backup;
   } catch (error) {
     if (els.cloudBackupStatus) els.cloudBackupStatus.textContent = "云备份失败，稍后再试";
@@ -2722,7 +2912,7 @@ function cloudShareIdFromInput(value = "") {
 async function importCloudShare(id) {
   const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}?id=${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Share not found");
-  const data = await response.json();
+  const data = unwrapCloudResponse(await response.json());
   const importPayload = data?.payload || data?.data || data;
   return normalizeImportedRecords(importPayload);
 }
@@ -2887,6 +3077,9 @@ function bindEvents() {
   els.newAccountPasswordInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") createAccount();
   });
+  els.newAccountSyncCodeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") createAccount();
+  });
   els.addBtn.addEventListener("click", () => openRecordDialog());
   els.exportBtn.addEventListener("click", exportData);
   els.closeExportDialogBtn.addEventListener("click", closeExportDialog);
@@ -2895,6 +3088,12 @@ function bindEvents() {
   els.copyExportBtn.addEventListener("click", copyExportData);
   els.copyImportLinkBtn.addEventListener("click", copyImportLink);
   els.backupNowBtn.addEventListener("click", () => runCloudBackup("manual"));
+  els.enableCloudSyncBtn.addEventListener("click", enableCloudSyncFromInput);
+  els.checkCloudSyncBtn.addEventListener("click", () => checkAndOfferCloudSyncRestore("manual"));
+  els.disableCloudSyncBtn.addEventListener("click", disableCloudSyncForActiveAccount);
+  els.currentSyncCodeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") enableCloudSyncFromInput();
+  });
   els.importBtn.addEventListener("click", openImportDialog);
   els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
   els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);

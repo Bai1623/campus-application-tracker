@@ -2559,6 +2559,53 @@ svg {
   grid-template-columns: minmax(0, 180px);
 }
 
+.cloud-sync-panel {
+  background: linear-gradient(135deg, rgba(241, 245, 249, 0.96), rgba(239, 246, 255, 0.94));
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.cloud-sync-title {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.cloud-sync-title strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.cloud-sync-title span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cloud-sync-controls {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.cloud-sync-feedback {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cloud-sync-feedback.is-error {
+  color: #b91c1c;
+}
+
+.cloud-sync-feedback.is-success {
+  color: #047857;
+}
+
 .cloud-backup-list {
   display: grid;
   gap: 10px;
@@ -2653,6 +2700,7 @@ svg {
   .author-content,
   .link-import-content,
   .due-status-options,
+  .cloud-sync-controls,
   .cloud-backup-item,
   .cloud-backup-actions {
     grid-template-columns: 1fr;

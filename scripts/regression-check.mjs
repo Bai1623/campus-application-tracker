@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const root = new URL("../", import.meta.url);
 const app = readFileSync(new URL("app.js", root), "utf8");
 const html = readFileSync(new URL("index.html", root), "utf8");
+const cloudbaseFunction = readFileSync(new URL("cloudbase/share/index.js", root), "utf8");
 
 function assert(condition, message) {
   if (!condition) {
@@ -18,7 +19,7 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.4"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.5"'), "app version should be bumped for this iteration");
 assert(app.includes("const AUTO_BACKUP_INTERVAL_MS = 12 * 60 * 60 * 1000"), "auto backup should run after 12 hours");
 assert(app.includes("const MAX_CLOUD_BACKUPS = 30"), "cloud backup history should keep the latest 30 entries");
 assert(html.includes('id="cloudBackupPanel"'), "profile should include cloud backup center");
@@ -29,6 +30,19 @@ assert(app.includes("async function runCloudBackup"), "app should implement clou
 assert(app.includes("function renderCloudBackupPanel"), "app should render cloud backup center");
 assert(app.includes("async function restoreCloudBackup"), "app should support restoring a cloud backup");
 assert(app.includes("saveCloudBackups(nextBackups.slice(0, MAX_CLOUD_BACKUPS))"), "backup history should be trimmed to 30");
+assert(html.includes('id="newAccountSyncCodeInput"'), "new account form should allow optional cloud sync code");
+assert(html.includes('id="currentSyncCodeInput"'), "cloud backup center should allow setting a cloud sync code");
+assert(html.includes('id="enableCloudSyncBtn"'), "cloud backup center should include cloud sync enable button");
+assert(html.includes('id="checkCloudSyncBtn"'), "cloud backup center should include cloud sync check button");
+assert(app.includes("const CLOUD_SYNC_SETTINGS_PREFIX"), "app should store per-account cloud sync settings");
+assert(app.includes("async function buildCloudSyncKey"), "app should derive a sync key from account name and cloud sync code");
+assert(!app.includes("baishenhua"), "cloud sync code must not be hard-coded in the app");
+assert(app.includes('action: "sync-put"'), "automatic backups should publish latest backup to the account sync index");
+assert(app.includes('action: "sync-get"'), "new devices should be able to query the account sync index");
+assert(app.includes("checkAndOfferCloudSyncRestore"), "app should offer restore when a cloud sync backup exists");
+assert(cloudbaseFunction.includes('action === "sync-put"'), "CloudBase function should support sync-put");
+assert(cloudbaseFunction.includes('action === "sync-get"'), "CloudBase function should support sync-get");
+assert(cloudbaseFunction.includes("latestShareId"), "CloudBase function should store the latest share id for a sync key");
 assert(app.includes('const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share"'), "cloud share should use Tencent CloudBase HTTP gateway");
 assert(!app.includes("workers.dev"), "cloud share should not reference Cloudflare workers");
 assert(!html.includes("workers.dev"), "UI examples should not reference Cloudflare workers");

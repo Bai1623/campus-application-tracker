@@ -171,6 +171,7 @@
                 <button id="createAccountBtn" class="mini-button strong-mini" type="button">添加</button>
               </div>
               <input id="newAccountPasswordInput" type="password" placeholder="账号密码（可选）" autocomplete="new-password" />
+              <input id="newAccountSyncCodeInput" type="password" placeholder="云同步码（可选，新设备同步用）" autocomplete="off" />
             </div>
 
             <div class="account-editor">
@@ -197,6 +198,19 @@
                 <h3>自动备份与恢复</h3>
               </div>
               <span id="cloudBackupStatus" class="card-hint">每 12 小时自动检查</span>
+            </div>
+            <div class="cloud-sync-panel">
+              <div class="cloud-sync-title">
+                <strong>账号云同步</strong>
+                <span id="cloudSyncStatus">未开启</span>
+              </div>
+              <div class="cloud-sync-controls">
+                <input id="currentSyncCodeInput" type="password" placeholder="输入云同步码，开启当前账号同步" autocomplete="off" />
+                <button id="enableCloudSyncBtn" class="mini-button strong-mini" type="button">开启/更新</button>
+                <button id="checkCloudSyncBtn" class="mini-button" type="button">检查云端</button>
+                <button id="disableCloudSyncBtn" class="mini-button" type="button">关闭</button>
+              </div>
+              <p id="cloudSyncFeedback" class="cloud-sync-feedback">同一账号在其他设备输入相同云同步码，即可恢复最新云备份。</p>
             </div>
             <div class="cloud-backup-actions">
               <button id="backupNowBtn" class="profile-action" type="button">
@@ -238,7 +252,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.2.4 · 更新于 2026.07.19</span>
+          <span id="appVersionInfo" class="version-info">v2.2.5 · 更新于 2026.07.19</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">
