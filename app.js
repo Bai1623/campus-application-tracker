@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.5";
+const APP_VERSION = "2.2.6";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -2554,6 +2554,7 @@ async function buildCloudImportLink() {
 
   const url = new URL(candidate, SHARE_API_BASE_URL).toString();
   if (!cloudShareIdFromInput(url)) throw new Error("Share url invalid");
+  await verifyCloudShareId(shareId);
   return url;
 }
 
@@ -2566,6 +2567,15 @@ function unwrapCloudResponse(data) {
     }
   }
   return data;
+}
+
+async function verifyCloudShareId(shareId) {
+  if (!shareId) throw new Error("Share id missing");
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}?id=${encodeURIComponent(shareId)}`);
+  if (!response.ok) throw new Error("Generated share not readable");
+  const data = unwrapCloudResponse(await response.json());
+  const importPayload = data?.payload || data?.data || data;
+  normalizeImportedRecords(importPayload);
 }
 
 async function postCloudShareAction(payload) {

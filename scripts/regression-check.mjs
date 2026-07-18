@@ -19,7 +19,7 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.5"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.6"'), "app version should be bumped for this iteration");
 assert(app.includes("const AUTO_BACKUP_INTERVAL_MS = 12 * 60 * 60 * 1000"), "auto backup should run after 12 hours");
 assert(app.includes("const MAX_CLOUD_BACKUPS = 30"), "cloud backup history should keep the latest 30 entries");
 assert(html.includes('id="cloudBackupPanel"'), "profile should include cloud backup center");
@@ -49,6 +49,7 @@ assert(!html.includes("workers.dev"), "UI examples should not reference Cloudfla
 assert(!app.includes("/api/share"), "cloud share should not call old Cloudflare API paths");
 assert(app.includes("body: JSON.stringify({ payload: buildImportPayload() })"), "cloud upload should send payload wrapper expected by CloudBase function");
 assert(app.includes('shareId ? `${SHARE_API_BASE_URL}?id=${encodeURIComponent(shareId)}` : data?.url || data?.shortUrl || ""'), "cloud upload should prefer canonical CloudBase gateway URL built from id");
+assert(app.includes("await verifyCloudShareId(shareId)"), "cloud upload should verify the generated share id can be read before copying it");
 assert(app.includes('`${SHARE_API_BASE_URL}?id=${encodeURIComponent(id)}`'), "cloud import should fetch CloudBase id query URL");
 assert(app.includes("const importPayload = data?.payload || data?.data || data"), "cloud import should unwrap CloudBase payload responses");
 assert(app.includes("function formatLocalDateISO(date)"), "date defaults should use local calendar dates instead of UTC slices");
