@@ -2082,6 +2082,11 @@ tbody tr:hover {
   background: var(--primary-soft);
 }
 
+.export-option:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .export-option [data-icon] {
   grid-row: 1 / 3;
   display: grid;
@@ -2092,6 +2097,12 @@ tbody tr:hover {
 .export-option small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.export-feedback {
+  min-height: 20px;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
 .link-import-content {

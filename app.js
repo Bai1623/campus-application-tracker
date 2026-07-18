@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.1.0";
-const APP_UPDATED_AT = "2026.07.17";
+const APP_VERSION = "2.1.1";
+const APP_UPDATED_AT = "2026.07.18";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -83,6 +83,7 @@ const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
 const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
+const CLOUD_SHARE_TIMEOUT_MS = 8000;
 
 const icons = {
   home:
@@ -139,6 +140,7 @@ let toastTimer = null;
 let swipeState = null;
 let actionConfirmResolve = null;
 let statusDeadlineResolve = null;
+let cloudShareRequestPending = false;
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -179,6 +181,7 @@ const els = {
   importBtn: document.querySelector("#importBtn"),
   importInput: document.querySelector("#importInput"),
   exportDialog: document.querySelector("#exportDialog"),
+  exportFeedback: document.querySelector("#exportFeedback"),
   closeExportDialogBtn: document.querySelector("#closeExportDialogBtn"),
   shareExportBtn: document.querySelector("#shareExportBtn"),
   saveExportBtn: document.querySelector("#saveExportBtn"),
@@ -2215,6 +2218,9 @@ function drawerHTML(record) {
 }
 
 function exportData() {
+  setExportFeedback("正在连接云端并生成短链接...");
+  openDialog(els.exportDialog);
+  hydrateIcons(els.exportDialog);
   copyImportLink();
 }
 
@@ -2391,7 +2397,7 @@ async function buildImportLink() {
 }
 
 async function buildCloudImportLink() {
-  const response = await fetch(`${SHARE_API_BASE_URL}/api/share`, {
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2402,8 +2408,31 @@ async function buildCloudImportLink() {
   if (!response.ok) throw new Error("Share upload failed");
 
   const data = await response.json();
-  if (!data?.url) throw new Error("Share url missing");
-  return data.url;
+  const shareId = data?.id || data?.key || "";
+  const candidate = data?.url || data?.shortUrl || (shareId ? `${SHARE_API_BASE_URL}/i/${shareId}` : "");
+  if (!candidate) throw new Error("Share url missing");
+
+  const url = new URL(candidate, `${SHARE_API_BASE_URL}/`).toString();
+  if (!cloudShareIdFromInput(url)) throw new Error("Share url invalid");
+  return url;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = CLOUD_SHARE_TIMEOUT_MS) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId = null;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      controller?.abort();
+      reject(new Error("Cloud request timed out"));
+    }, timeoutMs);
+  });
+
+  try {
+    const request = fetch(url, controller ? { ...options, signal: controller.signal } : options);
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  }
 }
 
 function copyText(text) {
@@ -2428,19 +2457,38 @@ function copyText(text) {
   return Promise.resolve();
 }
 
+function setExportFeedback(message = "", tone = "info") {
+  if (!els.exportFeedback) return;
+  els.exportFeedback.textContent = message;
+  els.exportFeedback.classList.toggle("is-error", tone === "error");
+  els.exportFeedback.classList.toggle("is-success", tone === "success");
+}
+
 async function copyImportLink() {
+  if (cloudShareRequestPending) return;
+  cloudShareRequestPending = true;
+  els.copyImportLinkBtn.disabled = true;
+  setExportFeedback("正在连接云端并生成短链接...");
+
   try {
     const link = await buildCloudImportLink();
     await copyText(link);
-    showToast("已复制");
-  } catch {
+    setExportFeedback(`云端短链接已生成并复制：${link}`, "success");
+    showToast("云端短链接已复制");
+  } catch (error) {
     try {
       const { link } = await buildImportLinkParts();
       await copyText(link);
-      showToast("云端失败，已复制本地链接");
+      const reason = error?.message?.includes("timed out") ? "云端连接超时" : "云端服务不可用";
+      setExportFeedback(`${reason}，已复制包含数据的本地备份链接。`, "error");
+      showToast("云端失败，已复制备份链接");
     } catch {
+      setExportFeedback("短链接和备份链接均生成失败，请稍后重试。", "error");
       showToast("复制失败");
     }
+  } finally {
+    cloudShareRequestPending = false;
+    els.copyImportLinkBtn.disabled = false;
   }
 }
 
@@ -2531,7 +2579,7 @@ function cloudShareIdFromInput(value = "") {
 }
 
 async function importCloudShare(id) {
-  const response = await fetch(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Share not found");
   const payload = await response.json();
   return normalizeImportedRecords(payload);
