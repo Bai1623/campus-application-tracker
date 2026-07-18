@@ -4,8 +4,8 @@ const ACTIVE_ACCOUNT_KEY = "campus-application-tracker:active-account:v1";
 const ACCOUNT_RECORDS_PREFIX = "campus-application-tracker:records:v1:";
 const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
-const APP_VERSION = "2.2.2";
-const APP_UPDATED_AT = "2026.07.18";
+const APP_VERSION = "2.2.3";
+const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -83,7 +83,7 @@ const DEADLINE_REQUIRED_STATUSES = new Set(["待测评", "待笔试", "待面试
 const LINK_IMPORT_PARAM = "import";
 const LINK_IMPORT_VERSION = 1;
 const PUBLIC_IMPORT_BASE_URL = "https://bai1623444091-coder.github.io/campus-application-tracker/";
-const SHARE_API_BASE_URL = "https://bai.a1623444091.workers.dev";
+const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share";
 const CLOUD_SHARE_TIMEOUT_MS = 8000;
 
 const icons = {
@@ -2417,22 +2417,22 @@ async function buildImportLink() {
 }
 
 async function buildCloudImportLink() {
-  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share`, {
+  const response = await fetchWithTimeout(SHARE_API_BASE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildImportPayload()),
+    body: JSON.stringify({ payload: buildImportPayload() }),
   });
 
   if (!response.ok) throw new Error("Share upload failed");
 
   const data = await response.json();
   const shareId = data?.id || data?.key || "";
-  const candidate = data?.url || data?.shortUrl || (shareId ? `${SHARE_API_BASE_URL}/i/${shareId}` : "");
+  const candidate = shareId ? `${SHARE_API_BASE_URL}?id=${encodeURIComponent(shareId)}` : data?.url || data?.shortUrl || "";
   if (!candidate) throw new Error("Share url missing");
 
-  const url = new URL(candidate, `${SHARE_API_BASE_URL}/`).toString();
+  const url = new URL(candidate, SHARE_API_BASE_URL).toString();
   if (!cloudShareIdFromInput(url)) throw new Error("Share url invalid");
   return url;
 }
@@ -2585,6 +2585,8 @@ function cloudShareIdFromInput(value = "") {
   try {
     const url = new URL(text);
     if (url.hostname !== new URL(SHARE_API_BASE_URL).hostname) return "";
+    const queryId = url.searchParams.get("id");
+    if (/^[A-Za-z0-9]{6,32}$/.test(queryId || "")) return queryId;
 
     const shareMatch = url.pathname.match(/^\/api\/share\/([A-Za-z0-9]{6,32})$/);
     if (shareMatch) return shareMatch[1];
@@ -2599,10 +2601,11 @@ function cloudShareIdFromInput(value = "") {
 }
 
 async function importCloudShare(id) {
-  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}/api/share/${encodeURIComponent(id)}`);
+  const response = await fetchWithTimeout(`${SHARE_API_BASE_URL}?id=${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Share not found");
-  const payload = await response.json();
-  return normalizeImportedRecords(payload);
+  const data = await response.json();
+  const importPayload = data?.payload || data?.data || data;
+  return normalizeImportedRecords(importPayload);
 }
 
 async function importFromLinkInput() {

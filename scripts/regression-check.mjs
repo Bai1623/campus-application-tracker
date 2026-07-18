@@ -18,7 +18,15 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.2"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.3"'), "app version should be bumped for this iteration");
+assert(app.includes('const SHARE_API_BASE_URL = "https://bai-d0g23uiiz96a4f50d-1428838698.ap-shanghai.app.tcloudbase.com/share"'), "cloud share should use Tencent CloudBase HTTP gateway");
+assert(!app.includes("workers.dev"), "cloud share should not reference Cloudflare workers");
+assert(!html.includes("workers.dev"), "UI examples should not reference Cloudflare workers");
+assert(!app.includes("/api/share"), "cloud share should not call old Cloudflare API paths");
+assert(app.includes("body: JSON.stringify({ payload: buildImportPayload() })"), "cloud upload should send payload wrapper expected by CloudBase function");
+assert(app.includes('shareId ? `${SHARE_API_BASE_URL}?id=${encodeURIComponent(shareId)}` : data?.url || data?.shortUrl || ""'), "cloud upload should prefer canonical CloudBase gateway URL built from id");
+assert(app.includes('`${SHARE_API_BASE_URL}?id=${encodeURIComponent(id)}`'), "cloud import should fetch CloudBase id query URL");
+assert(app.includes("const importPayload = data?.payload || data?.data || data"), "cloud import should unwrap CloudBase payload responses");
 assert(app.includes("function formatLocalDateISO(date)"), "date defaults should use local calendar dates instead of UTC slices");
 assert(!app.includes("return new Date().toISOString().slice(0, 10);"), "todayISO should not use UTC date slices");
 assert(app.includes('const CITY_OPTIONS = [\n  "全国任意城市",\n  "杭州",\n  "北京",\n  "深圳",\n  "广州",\n  "上海"'), "city options should start with nationwide, fixed top three, then remaining first-tier cities");
