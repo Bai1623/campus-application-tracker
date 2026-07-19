@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.7";
+const APP_VERSION = "2.2.8";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -159,7 +159,6 @@ const els = {
   accountList: document.querySelector("#accountList"),
   newAccountNameInput: document.querySelector("#newAccountNameInput"),
   newAccountPasswordInput: document.querySelector("#newAccountPasswordInput"),
-  newAccountSyncCodeInput: document.querySelector("#newAccountSyncCodeInput"),
   createAccountBtn: document.querySelector("#createAccountBtn"),
   accountPasswordGate: document.querySelector("#accountPasswordGate"),
   accountRecoveryList: document.querySelector("#accountRecoveryList"),
@@ -201,10 +200,7 @@ const els = {
   backupNowBtn: document.querySelector("#backupNowBtn"),
   cloudSyncStatus: document.querySelector("#cloudSyncStatus"),
   cloudSyncFeedback: document.querySelector("#cloudSyncFeedback"),
-  currentSyncCodeInput: document.querySelector("#currentSyncCodeInput"),
-  enableCloudSyncBtn: document.querySelector("#enableCloudSyncBtn"),
   checkCloudSyncBtn: document.querySelector("#checkCloudSyncBtn"),
-  disableCloudSyncBtn: document.querySelector("#disableCloudSyncBtn"),
   linkImportDialog: document.querySelector("#linkImportDialog"),
   chooseJsonImportBtn: document.querySelector("#chooseJsonImportBtn"),
   importLinkInput: document.querySelector("#importLinkInput"),
@@ -422,8 +418,8 @@ function normalizeSyncAccountName(name = "") {
   return String(name).trim().toLowerCase();
 }
 
-async function buildCloudSyncKey(accountName, syncCode) {
-  return hashPassword(syncCode, `cloud-sync:${normalizeSyncAccountName(accountName)}`);
+async function buildCloudSyncKey(accountName, password) {
+  return hashPassword(password, `cloud-sync:${normalizeSyncAccountName(accountName)}`);
 }
 
 function accountHasPassword(account) {
@@ -512,7 +508,7 @@ function percent(value, total) {
 
 function exportFilename() {
   const account = accounts.find((item) => item.id === activeAccountId);
-  const accountName = (account?.name || "默认账号").replace(/[\\/:*?"<>|]/g, "_");
+  const accountName = (account?.name || "本地游客").replace(/[\\/:*?"<>|]/g, "_");
   return `秋招投递记录-${accountName}-${todayISO()}.json`;
 }
 
@@ -550,7 +546,7 @@ function cloudSyncSettingsKey(accountId = activeAccountId) {
 function defaultAccount() {
   return {
     id: "default",
-    name: "默认账号",
+    name: "本地游客",
     createdAt: todayISO(),
   };
 }
@@ -574,6 +570,12 @@ function loadAccounts() {
     saveAccounts();
     return;
   }
+
+  accounts = accounts.map((account) =>
+    account.id === "default" && account.name === "默认账号"
+      ? { ...account, name: "本地游客" }
+      : account,
+  );
 
   const savedActiveId = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
   activeAccountId = accounts.some((account) => account.id === savedActiveId)
@@ -650,7 +652,7 @@ function loadCloudSyncSettings(accountId = activeAccountId) {
   try {
     const raw = localStorage.getItem(cloudSyncSettingsKey(accountId));
     const settings = raw ? JSON.parse(raw) : null;
-    return settings?.syncKey ? settings : null;
+    return settings?.syncKey && settings.mode === "account-password" ? settings : null;
   } catch {
     return null;
   }
@@ -1197,46 +1199,58 @@ async function switchAccount(accountId, password = "") {
   render();
   toggleAccountMenu(false);
   window.setTimeout(showImportantReminderDialog, 180);
+  if (password) {
+    await activateCloudSyncWithPassword(account, password);
+    await checkAndOfferCloudSyncRestore("login");
+  }
   scheduleAutoCloudBackupCheck();
 }
 
-async function createAccount() {
+async function loginAccount() {
   const normalizedName = els.newAccountNameInput.value.trim();
   const password = els.newAccountPasswordInput.value;
-  const syncCode = els.newAccountSyncCodeInput.value.trim();
   if (!normalizedName) {
-    setAccountFeedback("先给新账号起个名字。", "error");
+    setAccountFeedback("请输入账号名。", "error");
     els.newAccountNameInput.focus();
     return;
   }
-  if (accounts.some((account) => account.name === normalizedName)) {
-    setAccountFeedback("这个账号名已经存在。", "error");
-    els.newAccountNameInput.select();
+  if (!password) {
+    setAccountFeedback("请输入账号密码。", "error");
+    els.newAccountPasswordInput.focus();
     return;
   }
-  const account = {
-    id: uid(),
-    name: normalizedName,
-    createdAt: todayISO(),
-  };
-  if (password) await setAccountPassword(account, password);
-  accounts.push(account);
+
+  let account = accounts.find((item) => item.name === normalizedName);
+  if (account && !(await accountPasswordMatches(account, password))) {
+    setAccountFeedback("账号密码不对，无法登录。", "error");
+    els.newAccountPasswordInput.select();
+    return;
+  }
+  if (!account) {
+    account = {
+      id: uid(),
+      name: normalizedName,
+      createdAt: todayISO(),
+    };
+    await setAccountPassword(account, password);
+    accounts.push(account);
+  } else if (!accountHasPassword(account)) {
+    await setAccountPassword(account, password);
+  }
+
   activeAccountId = account.id;
   pendingSwitchAccountId = "";
-  records = [];
+  loadRecords();
   saveAccounts();
-  saveRecords();
   resetFiltersForAccount();
   els.newAccountNameInput.value = "";
   els.newAccountPasswordInput.value = "";
-  els.newAccountSyncCodeInput.value = "";
-  setAccountFeedback(`已切换到「${account.name}」。`, "success");
+  setAccountFeedback(`已登录「${account.name}」，正在检查云端备份...`, "success");
   render();
   toggleAccountMenu(false);
-  if (syncCode) {
-    await enableCloudSyncForActiveAccount(syncCode, { silent: true });
-    await checkAndOfferCloudSyncRestore("create");
-  }
+  await activateCloudSyncWithPassword(account, password);
+  await checkAndOfferCloudSyncRestore("login");
+  scheduleAutoCloudBackupCheck();
 }
 
 function renameAccount() {
@@ -1274,7 +1288,9 @@ async function updateCurrentAccountPassword() {
   await setAccountPassword(account, password);
   saveAccounts();
   input.value = "";
+  await activateCloudSyncWithPassword(account, password, { silent: true });
   renderAccountPanel();
+  renderCloudBackupPanel();
   setAccountFeedback("当前账号密码已更新。", "success");
 }
 
@@ -1293,6 +1309,10 @@ async function resetAccountPassword(accountId, password) {
   }
   await setAccountPassword(account, password);
   saveAccounts();
+  if (account.id === activeAccountId) {
+    await activateCloudSyncWithPassword(account, password, { silent: true });
+    renderCloudBackupPanel();
+  }
   renderAccountPanel();
   setAccountFeedback(`「${account.name}」的密码已重置。`, "success");
 }
@@ -1771,11 +1791,14 @@ function renderCloudBackupPanel() {
     ? `上次备份 ${formatDateTime(latest.createdAt)}`
     : "每 12 小时自动检查";
   if (els.cloudSyncStatus) {
-    els.cloudSyncStatus.textContent = syncSettings
-      ? `已开启 · ${syncSettings.accountName || activeAccount().name}`
-      : "未开启";
+    const account = activeAccount();
+    els.cloudSyncStatus.textContent =
+      account.id === "default"
+        ? "游客模式"
+        : syncSettings
+          ? `已登录 · ${syncSettings.accountName || account.name}`
+          : "需登录";
   }
-  if (els.disableCloudSyncBtn) els.disableCloudSyncBtn.disabled = !syncSettings;
 
   if (!backups.length) {
     els.cloudBackupList.innerHTML = '<p class="empty-mini">暂无云备份。打开 App 超过 12 小时会自动生成，也可以手动备份。</p>';
@@ -2591,32 +2614,34 @@ async function postCloudShareAction(payload) {
   return unwrapCloudResponse(await response.json());
 }
 
-function setCloudSyncFeedback(message = "同一账号在其他设备输入相同云同步码，即可恢复最新云备份。", tone = "info") {
+function setCloudSyncFeedback(message = "登录账号后，会用账号名和账号密码检查云端最新备份。", tone = "info") {
   if (!els.cloudSyncFeedback) return;
   els.cloudSyncFeedback.textContent = message;
   els.cloudSyncFeedback.classList.toggle("is-error", tone === "error");
   els.cloudSyncFeedback.classList.toggle("is-success", tone === "success");
 }
 
-async function enableCloudSyncForActiveAccount(syncCode, options = {}) {
-  const code = syncCode.trim();
-  if (!code) {
-    setCloudSyncFeedback("请输入云同步码。", "error");
-    els.currentSyncCodeInput?.focus();
+async function activateCloudSyncWithPassword(account, password, options = {}) {
+  const code = String(password || "").trim();
+  if (!account || account.id === "default") {
+    if (!options.silent) setCloudSyncFeedback("游客模式只保存在本机，登录账号后才能云同步。", "info");
     return null;
   }
-  const account = activeAccount();
+  if (!code) {
+    if (!options.silent) setCloudSyncFeedback("请输入账号密码后再检查云端备份。", "error");
+    return null;
+  }
   const settings = {
     enabled: true,
     accountId: account.id,
     accountName: account.name,
     syncKey: await buildCloudSyncKey(account.name, code),
     updatedAt: new Date().toISOString(),
+    mode: "account-password",
   };
-  saveCloudSyncSettings(settings);
-  if (els.currentSyncCodeInput) els.currentSyncCodeInput.value = "";
+  saveCloudSyncSettings(settings, account.id);
   renderCloudBackupPanel();
-  if (!options.silent) setCloudSyncFeedback("云同步已开启。后续云备份会登记为这个账号的最新备份。", "success");
+  if (!options.silent) setCloudSyncFeedback("已用账号密码开启云同步。后续备份会登记为这个账号的最新备份。", "success");
   return settings;
 }
 
@@ -2646,7 +2671,7 @@ async function fetchCloudSyncLatest(settings = loadCloudSyncSettings()) {
 async function checkAndOfferCloudSyncRestore(trigger = "manual") {
   const settings = loadCloudSyncSettings();
   if (!settings?.syncKey) {
-    if (trigger === "manual") setCloudSyncFeedback("当前账号还没有开启云同步。", "error");
+    if (trigger === "manual") setCloudSyncFeedback("请先登录账号并输入账号密码，才能检查云端备份。", "error");
     return false;
   }
 
@@ -2655,7 +2680,13 @@ async function checkAndOfferCloudSyncRestore(trigger = "manual") {
     const latest = await fetchCloudSyncLatest(settings);
     const latestShareId = latest?.latestShareId || latest?.shareId || "";
     if (!latestShareId) {
-      setCloudSyncFeedback("云端暂时没有这个账号的备份。", "info");
+      if (trigger === "login") {
+        setAccountFeedback("云端暂无数据。现在开始秋招吧！", "success");
+        setCloudSyncFeedback("云端暂无数据。现在开始秋招吧！", "info");
+        showToast("云端暂无数据。现在开始秋招吧！");
+      } else {
+        setCloudSyncFeedback("云端暂无数据。现在开始秋招吧！", "info");
+      }
       return false;
     }
 
@@ -2678,21 +2709,10 @@ async function checkAndOfferCloudSyncRestore(trigger = "manual") {
     return true;
   } catch {
     setCloudSyncFeedback("云端同步检查失败，请确认腾讯云函数已升级。", "error");
+    if (trigger === "login") setAccountFeedback("云端同步检查失败，本地数据仍可正常使用。", "error");
     if (trigger === "manual") showToast("同步检查失败");
     return false;
   }
-}
-
-async function enableCloudSyncFromInput() {
-  const settings = await enableCloudSyncForActiveAccount(els.currentSyncCodeInput.value);
-  if (settings) await checkAndOfferCloudSyncRestore("manual");
-}
-
-function disableCloudSyncForActiveAccount() {
-  clearCloudSyncSettings();
-  if (els.currentSyncCodeInput) els.currentSyncCodeInput.value = "";
-  renderCloudBackupPanel();
-  setCloudSyncFeedback("已关闭当前账号云同步；本地记录和已有云备份不会删除。", "info");
 }
 
 async function runCloudBackup(mode = "auto") {
@@ -3106,7 +3126,7 @@ function exposeFallbackActions() {
 function bindEvents() {
   els.accountMenuBtn.addEventListener("click", () => toggleAccountMenu());
   els.closeAccountMenuBtn.addEventListener("click", () => toggleAccountMenu(false));
-  els.createAccountBtn.addEventListener("click", createAccount);
+  els.createAccountBtn.addEventListener("click", loginAccount);
   els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
   els.cancelDeleteAccountBtn.addEventListener("click", () => {
     pendingDeleteAccountId = "";
@@ -3114,13 +3134,10 @@ function bindEvents() {
     setAccountFeedback();
   });
   els.newAccountNameInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") createAccount();
+    if (event.key === "Enter") loginAccount();
   });
   els.newAccountPasswordInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") createAccount();
-  });
-  els.newAccountSyncCodeInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") createAccount();
+    if (event.key === "Enter") loginAccount();
   });
   els.addBtn.addEventListener("click", () => openRecordDialog());
   els.exportBtn.addEventListener("click", exportData);
@@ -3130,12 +3147,7 @@ function bindEvents() {
   els.copyExportBtn.addEventListener("click", copyExportData);
   els.copyImportLinkBtn.addEventListener("click", copyImportLink);
   els.backupNowBtn.addEventListener("click", () => runCloudBackup("manual"));
-  els.enableCloudSyncBtn.addEventListener("click", enableCloudSyncFromInput);
   els.checkCloudSyncBtn.addEventListener("click", () => checkAndOfferCloudSyncRestore("manual"));
-  els.disableCloudSyncBtn.addEventListener("click", disableCloudSyncForActiveAccount);
-  els.currentSyncCodeInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") enableCloudSyncFromInput();
-  });
   els.importBtn.addEventListener("click", openImportDialog);
   els.chooseJsonImportBtn.addEventListener("click", () => els.importInput.click());
   els.confirmLinkImportBtn.addEventListener("click", importFromLinkInput);
@@ -3215,7 +3227,7 @@ function bindEvents() {
     if (confirmSwitchTarget) {
       const accountId = confirmSwitchTarget.dataset.confirmSwitch;
       const passwordInput = document.querySelector(`[data-switch-password="${accountId}"]`);
-      switchAccount(accountId, passwordInput?.value || "");
+      await switchAccount(accountId, passwordInput?.value || "");
       return;
     }
 
@@ -3225,19 +3237,19 @@ function bindEvents() {
     }
 
     if (saveAccountPasswordTarget) {
-      updateCurrentAccountPassword();
+      await updateCurrentAccountPassword();
       return;
     }
 
     if (accountTarget) {
-      switchAccount(accountTarget.dataset.switchAccount);
+      await switchAccount(accountTarget.dataset.switchAccount);
       return;
     }
 
     if (resetPasswordTarget) {
       const accountId = resetPasswordTarget.dataset.resetPasswordAccount;
       const passwordInput = document.querySelector(`[data-reset-password-input="${accountId}"]`);
-      resetAccountPassword(accountId, passwordInput?.value || "");
+      await resetAccountPassword(accountId, passwordInput?.value || "");
       return;
     }
 
@@ -3437,7 +3449,7 @@ function bindEvents() {
     updateRecordStatus(draggedId, column.dataset.dropStatus, "拖拽切换状态");
   });
 
-  document.addEventListener("keydown", (event) => {
+  document.addEventListener("keydown", async (event) => {
     const switchPasswordTarget = event.target.closest("[data-switch-password]");
     const renameAccountInput = event.target.closest("#renameAccountInput");
     const currentAccountPasswordInput = event.target.closest("#currentAccountPasswordInput");
@@ -3448,7 +3460,7 @@ function bindEvents() {
       return;
     }
     if (event.key === "Enter" && currentAccountPasswordInput) {
-      updateCurrentAccountPassword();
+      await updateCurrentAccountPassword();
       return;
     }
     if (event.key === "Enter" && masterPasswordInput) {
@@ -3460,11 +3472,11 @@ function bindEvents() {
       return;
     }
     if (event.key === "Enter" && resetPasswordInput) {
-      resetAccountPassword(resetPasswordInput.dataset.resetPasswordInput, resetPasswordInput.value || "");
+      await resetAccountPassword(resetPasswordInput.dataset.resetPasswordInput, resetPasswordInput.value || "");
       return;
     }
     if (event.key === "Enter" && switchPasswordTarget) {
-      switchAccount(switchPasswordTarget.dataset.switchPassword, switchPasswordTarget.value || "");
+      await switchAccount(switchPasswordTarget.dataset.switchPassword, switchPasswordTarget.value || "");
       return;
     }
     if (event.key === "Escape" && closeActiveDialog()) {

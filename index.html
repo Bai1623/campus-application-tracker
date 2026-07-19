@@ -155,7 +155,7 @@
             <div class="account-menu-head">
               <div>
                 <p class="section-label">当前账号</p>
-                <strong id="activeAccountName">默认账号</strong>
+                <strong id="activeAccountName">本地游客</strong>
               </div>
               <button id="closeAccountMenuBtn" class="icon-button secondary compact" type="button" aria-label="收起账号空间" title="收起">
                 <span data-icon="x"></span>
@@ -165,13 +165,12 @@
             <div id="accountList" class="account-list" aria-label="账号列表"></div>
 
             <div class="account-editor">
-              <label for="newAccountNameInput">新增账号</label>
+              <label for="newAccountNameInput">登录账号</label>
               <div class="account-input-row">
                 <input id="newAccountNameInput" type="text" maxlength="24" placeholder="例如：我的秋招" autocomplete="off" />
-                <button id="createAccountBtn" class="mini-button strong-mini" type="button">添加</button>
+                <button id="createAccountBtn" class="mini-button strong-mini" type="button">登录</button>
               </div>
-              <input id="newAccountPasswordInput" type="password" placeholder="账号密码（可选）" autocomplete="new-password" />
-              <input id="newAccountSyncCodeInput" type="password" placeholder="云同步码（可选，新设备同步用）" autocomplete="off" />
+              <input id="newAccountPasswordInput" type="password" placeholder="账号密码" autocomplete="current-password" />
             </div>
 
             <div class="account-editor">
@@ -205,12 +204,9 @@
                 <span id="cloudSyncStatus">未开启</span>
               </div>
               <div class="cloud-sync-controls">
-                <input id="currentSyncCodeInput" type="password" placeholder="输入云同步码，开启当前账号同步" autocomplete="off" />
-                <button id="enableCloudSyncBtn" class="mini-button strong-mini" type="button">开启/更新</button>
                 <button id="checkCloudSyncBtn" class="mini-button" type="button">检查云端</button>
-                <button id="disableCloudSyncBtn" class="mini-button" type="button">关闭</button>
               </div>
-              <p id="cloudSyncFeedback" class="cloud-sync-feedback">同一账号在其他设备输入相同云同步码，即可恢复最新云备份。</p>
+              <p id="cloudSyncFeedback" class="cloud-sync-feedback">登录账号后，会用账号名和账号密码检查云端最新备份。</p>
             </div>
             <div class="cloud-backup-actions">
               <button id="backupNowBtn" class="profile-action" type="button">
@@ -252,7 +248,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.2.6 · 更新于 2026.07.19</span>
+          <span id="appVersionInfo" class="version-info">v2.2.8 · 更新于 2026.07.19</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">
