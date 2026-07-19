@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.8";
+const APP_VERSION = "2.2.9";
 const APP_UPDATED_AT = "2026.07.19";
 
 const STATUSES = [
@@ -422,6 +422,14 @@ async function buildCloudSyncKey(accountName, password) {
   return hashPassword(password, `cloud-sync:${normalizeSyncAccountName(accountName)}`);
 }
 
+async function buildCloudAccountNameKey(accountName) {
+  return hashPassword(normalizeSyncAccountName(accountName), "cloud-account-name:v1");
+}
+
+async function buildCloudPasswordVerifier(accountName, password) {
+  return hashPassword(password, `cloud-account-password:${normalizeSyncAccountName(accountName)}`);
+}
+
 function accountHasPassword(account) {
   return Boolean(account?.passwordSalt && account?.passwordHash);
 }
@@ -652,7 +660,9 @@ function loadCloudSyncSettings(accountId = activeAccountId) {
   try {
     const raw = localStorage.getItem(cloudSyncSettingsKey(accountId));
     const settings = raw ? JSON.parse(raw) : null;
-    return settings?.syncKey && settings.mode === "account-password" ? settings : null;
+    return settings?.accountNameKey && settings?.passwordVerifier && settings.mode === "account-password"
+      ? settings
+      : null;
   } catch {
     return null;
   }
@@ -1191,6 +1201,15 @@ async function switchAccount(accountId, password = "") {
     setAccountFeedback("密码不对，再试一次。", "error");
     return;
   }
+  let cloudAccess = null;
+  try {
+    cloudAccess = password ? await prepareCloudAccountLogin(account.name, password) : null;
+  } catch {
+    setAccountFeedback("云端账号校验失败，请确认腾讯云函数已升级。", "error");
+    setCloudSyncFeedback("云端账号校验失败，请确认腾讯云函数已升级。", "error");
+    return;
+  }
+  if (password && !cloudAccess) return;
   activeAccountId = accountId;
   pendingSwitchAccountId = "";
   saveAccounts();
@@ -1201,7 +1220,7 @@ async function switchAccount(accountId, password = "") {
   window.setTimeout(showImportantReminderDialog, 180);
   if (password) {
     await activateCloudSyncWithPassword(account, password);
-    await checkAndOfferCloudSyncRestore("login");
+    await checkAndOfferCloudSyncRestore("login", cloudAccess?.result);
   }
   scheduleAutoCloudBackupCheck();
 }
@@ -1226,6 +1245,16 @@ async function loginAccount() {
     els.newAccountPasswordInput.select();
     return;
   }
+  let cloudAccess = null;
+  try {
+    cloudAccess = await prepareCloudAccountLogin(normalizedName, password);
+  } catch {
+    setAccountFeedback("云端账号校验失败，请确认腾讯云函数已升级。", "error");
+    setCloudSyncFeedback("云端账号校验失败，请确认腾讯云函数已升级。", "error");
+    return;
+  }
+  if (!cloudAccess) return;
+
   if (!account) {
     account = {
       id: uid(),
@@ -1249,7 +1278,7 @@ async function loginAccount() {
   render();
   toggleAccountMenu(false);
   await activateCloudSyncWithPassword(account, password);
-  await checkAndOfferCloudSyncRestore("login");
+  await checkAndOfferCloudSyncRestore("login", cloudAccess.result);
   scheduleAutoCloudBackupCheck();
 }
 
@@ -2621,6 +2650,15 @@ function setCloudSyncFeedback(message = "登录账号后，会用账号名和账
   els.cloudSyncFeedback.classList.toggle("is-success", tone === "success");
 }
 
+async function buildCloudLoginIdentity(accountName, password) {
+  return {
+    accountName,
+    accountNameKey: await buildCloudAccountNameKey(accountName),
+    passwordVerifier: await buildCloudPasswordVerifier(accountName, password),
+    syncKey: await buildCloudSyncKey(accountName, password),
+  };
+}
+
 async function activateCloudSyncWithPassword(account, password, options = {}) {
   const code = String(password || "").trim();
   if (!account || account.id === "default") {
@@ -2631,11 +2669,14 @@ async function activateCloudSyncWithPassword(account, password, options = {}) {
     if (!options.silent) setCloudSyncFeedback("请输入账号密码后再检查云端备份。", "error");
     return null;
   }
+  const identity = await buildCloudLoginIdentity(account.name, code);
   const settings = {
     enabled: true,
     accountId: account.id,
     accountName: account.name,
-    syncKey: await buildCloudSyncKey(account.name, code),
+    accountNameKey: identity.accountNameKey,
+    passwordVerifier: identity.passwordVerifier,
+    syncKey: identity.syncKey,
     updatedAt: new Date().toISOString(),
     mode: "account-password",
   };
@@ -2645,39 +2686,114 @@ async function activateCloudSyncWithPassword(account, password, options = {}) {
   return settings;
 }
 
+async function loginCloudAccount(identity) {
+  const result = await postCloudShareAction({
+    action: "account-login",
+    accountName: identity.accountName,
+    accountNameKey: identity.accountNameKey,
+    passwordVerifier: identity.passwordVerifier,
+    syncKey: identity.syncKey,
+  });
+  if (!["matched", "migrated", "account_not_found", "password_mismatch"].includes(result?.status)) {
+    throw new Error("Cloud account registry unavailable");
+  }
+  return result;
+}
+
+async function createCloudAccount(identity) {
+  const result = await postCloudShareAction({
+    action: "account-create",
+    accountName: identity.accountName,
+    accountNameKey: identity.accountNameKey,
+    passwordVerifier: identity.passwordVerifier,
+    syncKey: identity.syncKey,
+  });
+  if (!["created", "exists", "password_mismatch"].includes(result?.status)) {
+    throw new Error("Cloud account registry unavailable");
+  }
+  return result;
+}
+
+async function prepareCloudAccountLogin(accountName, password) {
+  const identity = await buildCloudLoginIdentity(accountName, password);
+  let result = await loginCloudAccount(identity);
+
+  if (result.status === "password_mismatch") {
+    setAccountFeedback("该账号密码错误。", "error");
+    setCloudSyncFeedback("该账号密码错误。", "error");
+    return null;
+  }
+
+  if (result.status === "account_not_found") {
+    const confirmed = await askActionConfirm({
+      title: "当前无账号，是否新建账号？",
+      message: `云端还没有「${accountName}」这个账号。新建后会用当前账号名和密码作为后续同步身份。`,
+      confirmLabel: "新建账号",
+      cancelLabel: "取消",
+      tone: "info",
+    });
+    if (!confirmed) {
+      setAccountFeedback("已取消登录。");
+      setCloudSyncFeedback("已取消云端账号创建。", "info");
+      return null;
+    }
+    result = await createCloudAccount(identity);
+    if (result.status === "password_mismatch") {
+      setAccountFeedback("该账号密码错误。", "error");
+      setCloudSyncFeedback("该账号密码错误。", "error");
+      return null;
+    }
+  }
+
+  return { identity, result };
+}
+
 async function publishCloudSyncLatest(backup) {
   const settings = loadCloudSyncSettings();
-  if (!settings?.syncKey || !backup?.shareId) return null;
+  if (!settings?.accountNameKey || !settings?.passwordVerifier || !backup?.shareId) return null;
   const result = await postCloudShareAction({
-    action: "sync-put",
-    syncKey: settings.syncKey,
+    action: "account-sync-put",
+    accountNameKey: settings.accountNameKey,
+    passwordVerifier: settings.passwordVerifier,
     latestShareId: backup.shareId,
     accountName: settings.accountName || activeAccount().name,
     recordCount: backup.recordCount || records.length,
     backupCreatedAt: backup.createdAt,
   });
+  if (result?.status === "password_mismatch") throw new Error("Cloud password mismatch");
   return result?.latest || result;
 }
 
 async function fetchCloudSyncLatest(settings = loadCloudSyncSettings()) {
-  if (!settings?.syncKey) return null;
+  if (!settings?.accountNameKey || !settings?.passwordVerifier) return null;
   const result = await postCloudShareAction({
-    action: "sync-get",
-    syncKey: settings.syncKey,
+    action: "account-sync-get",
+    accountNameKey: settings.accountNameKey,
+    passwordVerifier: settings.passwordVerifier,
   });
-  return result?.latest || result;
+  return result;
 }
 
-async function checkAndOfferCloudSyncRestore(trigger = "manual") {
+async function checkAndOfferCloudSyncRestore(trigger = "manual", cloudResult = null) {
   const settings = loadCloudSyncSettings();
-  if (!settings?.syncKey) {
+  if (!settings?.accountNameKey || !settings?.passwordVerifier) {
     if (trigger === "manual") setCloudSyncFeedback("请先登录账号并输入账号密码，才能检查云端备份。", "error");
     return false;
   }
 
   if (trigger === "manual") setCloudSyncFeedback("正在检查云端最新备份...");
   try {
-    const latest = await fetchCloudSyncLatest(settings);
+    const result = cloudResult || (await fetchCloudSyncLatest(settings));
+    if (result?.status === "password_mismatch") {
+      setAccountFeedback("该账号密码错误。", "error");
+      setCloudSyncFeedback("该账号密码错误。", "error");
+      return false;
+    }
+    if (result?.status === "account_not_found") {
+      setCloudSyncFeedback("云端暂无数据。现在开始秋招吧！", "info");
+      return false;
+    }
+    const latest = result?.latest || result;
     const latestShareId = latest?.latestShareId || latest?.shareId || "";
     if (!latestShareId) {
       if (trigger === "login") {
