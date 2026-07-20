@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.11";
+const APP_VERSION = "3.0.0";
 const APP_UPDATED_AT = "2026.07.20";
 
 const STATUSES = [
@@ -522,6 +522,90 @@ function stars(value) {
 function percent(value, total) {
   if (!total) return 0;
   return Math.round((value / total) * 100);
+}
+
+function insightMetricHTML(metric) {
+  return `
+    <article class="metric-card compact-metric" data-tone="${metric.tone || "neutral"}">
+      <span>${escapeHTML(metric.label)}</span>
+      <strong>${escapeHTML(metric.value)}</strong>
+      <em>${escapeHTML(metric.detail)}</em>
+    </article>
+  `;
+}
+
+function pipelineChartHTML(statusRows, total) {
+  const orderedRows = BOARD_STATUSES.map((status) => statusRows.find((row) => row.status === status.id))
+    .filter(Boolean);
+  const maxCount = Math.max(1, ...orderedRows.map((row) => row.count));
+  return `
+    <div class="pipeline-chart">
+      ${orderedRows
+        .map((row, index) => {
+          const share = percent(row.count, total);
+          const width = row.count ? Math.max(Math.round((row.count / maxCount) * 100), 18) : 8;
+          return `
+            <button class="pipeline-step" type="button" data-stat-status="${row.status}" data-stat-metric="all" data-status="${row.status}" style="--step-width:${width}%; --step-index:${index};">
+              <span class="pipeline-node"><span class="status-dot"></span></span>
+              <span class="pipeline-copy">
+                <strong>${escapeHTML(row.label)}</strong>
+                <em>${row.count} 条 · ${share}%</em>
+              </span>
+              <span class="pipeline-meter"><i></i></span>
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function cityBubbleChartHTML(cityRows) {
+  if (!cityRows.length) return '<p class="empty-mini">添加城市后会显示城市统计。</p>';
+  const maxCount = Math.max(1, ...cityRows.map((row) => row.count));
+  return `
+    <div class="city-bubble-cloud">
+      ${cityRows
+        .map((row, index) => {
+          const weight = row.count / maxCount;
+          const size = Math.round(62 + weight * 54);
+          return `
+            <button class="city-bubble" type="button" data-city-stat="${escapeHTML(row.label)}" style="--bubble-size:${size}px; --bubble-weight:${weight.toFixed(2)}; --bubble-index:${index};">
+              <strong>${escapeHTML(row.label)}</strong>
+              <span>${row.count}</span>
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function importanceOrbitHTML(importanceRows, total) {
+  const highCount = importanceRows
+    .filter((row) => row.level >= 4)
+    .reduce((sum, row) => sum + row.count, 0);
+  const highShare = percent(highCount, total);
+  return `
+    <div class="importance-orbit">
+      <div class="importance-core" style="--high-share:${highShare * 3.6}deg;">
+        <span>4-5 星</span>
+        <strong>${highShare}%</strong>
+        <em>${highCount} 条重点</em>
+      </div>
+      <div class="importance-satellite-list">
+        ${importanceRows
+          .map((row) => `
+            <div class="importance-satellite" data-importance="${row.level}">
+              <span class="importance-badge">${stars(row.level)}</span>
+              <strong>${row.count}</strong>
+              <em>${percent(row.count, total)}%</em>
+            </div>
+          `)
+          .join("")}
+      </div>
+    </div>
+  `;
 }
 
 function exportFilename() {
@@ -1738,29 +1822,48 @@ function renderInsights() {
           activeRecords.length,
       )
     : 0;
+  const insightMetrics = [
+    {
+      label: "面试推进率",
+      value: `${percent(interviewCount, total)}%`,
+      detail: `${interviewCount} / ${total || 0} 条进入待面试`,
+      tone: "progress",
+    },
+    {
+      label: "拒绝占比",
+      value: `${percent(rejectedCount, total)}%`,
+      detail: `${rejectedCount} 条已拒绝`,
+      tone: "reject",
+    },
+    {
+      label: "今日待检查",
+      value: String(dueCount),
+      detail: `${staleCount} 条超过 ${STALE_DAYS} 天未更新`,
+      tone: "check",
+    },
+    {
+      label: "平均未更新",
+      value: String(avgUpdateDays),
+      detail: "活跃投递平均天数",
+      tone: "neutral",
+    },
+    {
+      label: "逾期预警",
+      value: String(records.filter(isUpdateOverdue).length),
+      detail: `超过 ${overdueMonthsThreshold()} 个月未更新`,
+      tone: "alert",
+    },
+    {
+      label: "高重要待推进",
+      value: String(highPriority.length),
+      detail: "4-5 星活跃投递",
+      tone: "priority",
+    },
+  ];
 
   els.insightsView.innerHTML = `
-    <div class="insight-hero">
-      <article>
-        <span>面试推进率</span>
-        <strong>${percent(interviewCount, total)}%</strong>
-        <em>${interviewCount} / ${total || 0} 条进入待面试</em>
-      </article>
-      <article>
-        <span>拒绝占比</span>
-        <strong>${percent(rejectedCount, total)}%</strong>
-        <em>${rejectedCount} 条已拒绝</em>
-      </article>
-      <article>
-        <span>今日待检查</span>
-        <strong>${dueCount}</strong>
-        <em>${staleCount} 条超过 ${STALE_DAYS} 天未更新</em>
-      </article>
-      <article>
-        <span>平均未更新</span>
-        <strong>${avgUpdateDays}</strong>
-        <em>活跃投递平均天数</em>
-      </article>
+    <div class="insight-metrics">
+      ${insightMetrics.map(insightMetricHTML).join("")}
     </div>
 
     <div class="insight-grid">
@@ -1769,20 +1872,7 @@ function renderInsights() {
           <h3>状态漏斗</h3>
           <span>${total} 条记录</span>
         </div>
-        <div class="funnel-list">
-          ${statusRows
-            .map(
-              (row) => `
-                <button class="funnel-row" type="button" data-stat-status="${row.status}" data-stat-metric="all" data-status="${row.status}">
-                  <span class="status-dot"></span>
-                  <strong>${row.label}</strong>
-                  <em>${row.count} 条</em>
-                  <i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i>
-                </button>
-              `,
-            )
-            .join("")}
-        </div>
+        ${pipelineChartHTML(statusRows, total)}
       </section>
 
       <section class="insight-panel">
@@ -1814,23 +1904,7 @@ function renderInsights() {
           <h3>城市分布</h3>
           <span>前 10 个投递城市</span>
         </div>
-        <div class="bar-list">
-          ${
-            cityRows.length
-              ? cityRows
-                  .map(
-                    (row) => `
-                      <div class="bar-row">
-                        <span>${escapeHTML(row.label)}</span>
-                        <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
-                        <strong>${row.count}</strong>
-                      </div>
-                    `,
-                  )
-                  .join("")
-              : '<p class="empty-mini">添加城市后会显示城市统计。</p>'
-          }
-        </div>
+        ${cityBubbleChartHTML(cityRows)}
       </section>
 
       <section class="insight-panel">
@@ -1838,19 +1912,7 @@ function renderInsights() {
           <h3>星级分布</h3>
           <span>重点池是否健康</span>
         </div>
-        <div class="star-list">
-          ${importanceRows
-            .map(
-              (row) => `
-                <div class="star-row" data-importance="${row.level}">
-                  <span class="importance-badge">${stars(row.level)}</span>
-                  <div><i style="width:${total ? Math.max(percent(row.count, total), 4) : 0}%"></i></div>
-                  <strong>${row.count}</strong>
-                </div>
-              `,
-            )
-            .join("")}
-        </div>
+        ${importanceOrbitHTML(importanceRows, total)}
       </section>
     </div>
   `;
@@ -3395,6 +3457,7 @@ function bindEvents() {
     const markReapplyTarget = event.target.closest("[data-mark-reapply-id]");
     const filterTarget = event.target.closest("[data-filter-status]");
     const statTarget = event.target.closest("[data-stat-status]");
+    const cityStatTarget = event.target.closest("[data-city-stat]");
     const dueStatusTarget = event.target.closest("[data-due-status]");
     const closeTarget = event.target.closest("[data-close-drawer]");
     const reminderOpenTarget = event.target.closest("[data-reminder-open-id]");
@@ -3500,6 +3563,16 @@ function bindEvents() {
 
     if (statTarget) {
       selectOverviewFilter(statTarget.dataset.statStatus, statTarget.dataset.statMetric || "all");
+      return;
+    }
+
+    if (cityStatTarget) {
+      activeStatus = "all";
+      activeMetric = "all";
+      if (els.cityFilter) {
+        els.cityFilter.value = cityStatTarget.dataset.cityStat;
+      }
+      revealOverviewList(true);
       return;
     }
 

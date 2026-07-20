@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const root = new URL("../", import.meta.url);
 const app = readFileSync(new URL("app.js", root), "utf8");
 const html = readFileSync(new URL("index.html", root), "utf8");
+const styles = readFileSync(new URL("styles.css", root), "utf8");
 const cloudbaseFunction = readFileSync(new URL("cloudbase/share/index.js", root), "utf8");
 
 function assert(condition, message) {
@@ -21,7 +22,16 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.11"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "3.0.0"'), "app version should be bumped for this iteration");
+assert(app.includes("const insightMetrics = ["), "profile insights should render compact metric pairs");
+assert(app.includes('class="insight-metrics"'), "profile insights should use a two-column metric grid");
+assert(app.includes("pipelineChartHTML(statusRows, total)"), "status funnel should use the richer pipeline chart renderer");
+assert(app.includes("cityBubbleChartHTML(cityRows)"), "city distribution should use a bubble chart renderer");
+assert(app.includes("importanceOrbitHTML(importanceRows, total)"), "star distribution should use the orbit/ring chart renderer");
+assert(styles.includes(".insight-metrics"), "styles should define compact insight metric grid");
+assert(styles.includes(".pipeline-chart"), "styles should define status pipeline chart");
+assert(styles.includes(".city-bubble-cloud"), "styles should define city bubble chart");
+assert(styles.includes(".importance-orbit"), "styles should define star orbit chart");
 assert(app.includes("function recordsFromRawImportInput"), "link import should support pasted raw JSON data");
 assert(app.includes("const rawRecords = recordsFromRawImportInput(input)"), "link import should try raw/original data before import tokens");
 assert(html.includes("原始长链接 / 原始 JSON"), "import UI should explicitly mention original long links and raw JSON");
