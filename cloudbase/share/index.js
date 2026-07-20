@@ -1,13 +1,17 @@
-const cloudbase = require("@cloudbase/node-sdk");
 const crypto = require("crypto");
 
-const app = cloudbase.init({
-  env: cloudbase.SYMBOL_CURRENT_ENV,
-});
-
-const db = app.database();
-const collection = db.collection("bai");
 const MAX_SYNC_BACKUPS = 30;
+let cachedCollection = null;
+
+function getCollection() {
+  if (cachedCollection) return cachedCollection;
+  const cloudbase = require("@cloudbase/node-sdk");
+  const app = cloudbase.init({
+    env: cloudbase.SYMBOL_CURRENT_ENV,
+  });
+  cachedCollection = app.database().collection("bai");
+  return cachedCollection;
+}
 
 function headers() {
   return {
@@ -37,7 +41,12 @@ function parseBody(body) {
 }
 
 function shareId() {
-  return crypto.randomBytes(5).toString("base64url");
+  return crypto
+    .randomBytes(5)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function syncDocId(syncKey) {
@@ -70,6 +79,7 @@ async function getLegacySyncDoc(syncKey) {
 }
 
 async function getDoc(id) {
+  const collection = getCollection();
   const result = await collection.where({ lookupKey: id }).limit(1).get();
   return result?.data?.[0] || null;
 }
@@ -82,10 +92,12 @@ async function saveDoc(id, data) {
     updatedAt: new Date().toISOString(),
   };
   if (oldDoc?._id) {
+    const collection = getCollection();
     const { _id, ...updatablePayload } = payload;
     await collection.doc(oldDoc._id).update(updatablePayload);
     return;
   }
+  const collection = getCollection();
   await collection.add(payload);
 }
 
