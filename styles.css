@@ -197,6 +197,98 @@ label.icon-button:focus-within {
   gap: 8px;
 }
 
+.account-home-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.account-home-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(45, 212, 191, 0.24);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(250, 204, 21, 0.08)),
+    rgba(255, 255, 255, 0.08);
+}
+
+.account-avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(250, 204, 21, 0.48);
+  border-radius: 14px;
+  color: #1f2933;
+  background: linear-gradient(145deg, #facc15, #f97316);
+  box-shadow: 0 14px 28px rgba(249, 115, 22, 0.24);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.account-home-card strong,
+.account-home-card span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-home-card strong {
+  color: #f8fafc;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.account-home-card span {
+  margin-top: 3px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.account-entry-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.text-entry-button {
+  min-height: 44px;
+  border: 1px solid rgba(226, 232, 240, 0.22);
+  border-radius: var(--radius);
+  color: #fef3c7;
+  background: rgba(15, 23, 42, 0.24);
+  font-weight: 900;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.text-entry-button:hover {
+  border-color: rgba(250, 204, 21, 0.62);
+  background: rgba(250, 204, 21, 0.12);
+  transform: translateY(-1px);
+}
+
+.account-subpanel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.account-subpanel-head label {
+  display: block;
+  margin-top: 2px;
+  color: #f8fafc;
+  font-size: 16px;
+}
+
 .account-list-item {
   display: grid;
   gap: 8px;

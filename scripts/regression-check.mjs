@@ -19,7 +19,7 @@ assert(app.includes("askDueCheckStatusChange"), "due check should ask whether st
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.9"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.10"'), "app version should be bumped for this iteration");
 assert(app.includes("function recordsFromRawImportInput"), "link import should support pasted raw JSON data");
 assert(app.includes("const rawRecords = recordsFromRawImportInput(input)"), "link import should try raw/original data before import tokens");
 assert(html.includes("原始长链接 / 原始 JSON"), "import UI should explicitly mention original long links and raw JSON");
@@ -39,6 +39,13 @@ assert(!html.includes('id="currentSyncCodeInput"'), "cloud backup center should 
 assert(!html.includes('id="enableCloudSyncBtn"'), "cloud sync should be enabled by account password, not a separate enable button");
 assert(html.includes('id="checkCloudSyncBtn"'), "cloud backup center should include cloud sync check button");
 assert(html.includes("登录账号"), "account creator should be renamed to account login");
+assert(html.includes('id="accountHomePanel"'), "profile should default to an account home card");
+assert(html.includes('id="openLoginPanelBtn"'), "account home should expose a login entry button");
+assert(html.includes('id="openAccountAdminBtn"'), "account home should expose an account management entry button");
+assert(html.includes('id="accountLoginPanel" class="account-editor hidden"'), "login form should be hidden until the user taps login");
+assert(html.includes('id="accountAdminPanel" class="account-editor hidden"'), "admin tools should be hidden until the user taps account management");
+assert(app.includes('let activeAccountPanel = "home"'), "account center should track which account panel is active");
+assert(app.includes("function showAccountPanel"), "account center should switch between home, login, and admin panels");
 assert(app.includes('name: "本地游客"'), "default account should be local guest");
 assert(app.includes("const CLOUD_SYNC_SETTINGS_PREFIX"), "app should store per-account cloud sync settings");
 assert(app.includes("async function buildCloudSyncKey"), "app should derive a sync key from account name and account password");

@@ -6,8 +6,8 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.9";
-const APP_UPDATED_AT = "2026.07.19";
+const APP_VERSION = "2.2.10";
+const APP_UPDATED_AT = "2026.07.20";
 
 const STATUSES = [
   { id: "待初筛", label: "待初筛" },
@@ -134,6 +134,7 @@ let activeAccountId = "";
 let activeStatus = "all";
 let activeMetric = "all";
 let activeModule = "overview";
+let activeAccountPanel = "home";
 let overviewListVisible = false;
 let editingId = null;
 let selectedId = null;
@@ -156,6 +157,15 @@ const els = {
   accountMenu: document.querySelector("#accountMenu"),
   closeAccountMenuBtn: document.querySelector("#closeAccountMenuBtn"),
   activeAccountName: document.querySelector("#activeAccountName"),
+  accountHomePanel: document.querySelector("#accountHomePanel"),
+  accountHomeName: document.querySelector("#accountHomeName"),
+  accountHomeMeta: document.querySelector("#accountHomeMeta"),
+  openLoginPanelBtn: document.querySelector("#openLoginPanelBtn"),
+  openAccountAdminBtn: document.querySelector("#openAccountAdminBtn"),
+  accountLoginPanel: document.querySelector("#accountLoginPanel"),
+  accountAdminPanel: document.querySelector("#accountAdminPanel"),
+  backAccountHomeFromLoginBtn: document.querySelector("#backAccountHomeFromLoginBtn"),
+  backAccountHomeFromAdminBtn: document.querySelector("#backAccountHomeFromAdminBtn"),
   accountList: document.querySelector("#accountList"),
   newAccountNameInput: document.querySelector("#newAccountNameInput"),
   newAccountPasswordInput: document.querySelector("#newAccountPasswordInput"),
@@ -1033,6 +1043,27 @@ function setAccountFeedback(message = "每个账号的数据本地隔离保存�
   els.accountFeedback.classList.toggle("is-success", tone === "success");
 }
 
+function showAccountPanel(panel = "home") {
+  activeAccountPanel = ["home", "login", "admin"].includes(panel) ? panel : "home";
+  els.accountHomePanel?.classList.toggle("hidden", activeAccountPanel !== "home");
+  els.accountLoginPanel?.classList.toggle("hidden", activeAccountPanel !== "login");
+  els.accountAdminPanel?.classList.toggle("hidden", activeAccountPanel !== "admin");
+
+  if (activeAccountPanel === "login") {
+    window.setTimeout(() => els.newAccountNameInput?.focus({ preventScroll: true }), 80);
+  }
+  if (activeAccountPanel === "admin") {
+    renderPasswordManager();
+  }
+  if (activeAccountPanel === "home") {
+    pendingSwitchAccountId = "";
+    pendingDeleteAccountId = "";
+    masterPasswordUnlocked = false;
+    els.deleteAccountConfirm?.classList.add("hidden");
+    setAccountFeedback();
+  }
+}
+
 function toggleAccountMenu(forceOpen) {
   const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : activeModule !== "profile";
   if (shouldOpen) {
@@ -1043,12 +1074,13 @@ function toggleAccountMenu(forceOpen) {
   els.accountMenuBtn.setAttribute("aria-expanded", String(shouldOpen));
   if (shouldOpen) {
     renderAccountPanel();
-    window.setTimeout(() => els.newAccountNameInput.focus({ preventScroll: true }), 80);
+    showAccountPanel("home");
   } else {
     pendingSwitchAccountId = "";
     pendingDeleteAccountId = "";
     masterPasswordUnlocked = false;
     els.deleteAccountConfirm.classList.add("hidden");
+    showAccountPanel("home");
     setAccountFeedback();
   }
 }
@@ -1056,6 +1088,17 @@ function toggleAccountMenu(forceOpen) {
 function renderAccountPanel() {
   const currentAccount = activeAccount();
   els.activeAccountName.textContent = currentAccount.name;
+  if (els.accountHomeName) els.accountHomeName.textContent = currentAccount.name;
+  if (els.accountHomeMeta) {
+    const count = recordCountForAccount(currentAccount.id);
+    const syncSettings = loadCloudSyncSettings(currentAccount.id);
+    els.accountHomeMeta.textContent =
+      currentAccount.id === "default"
+        ? `游客模式 · ${count} 条本机记录`
+        : syncSettings
+          ? `已登录云同步 · ${count} 条记录`
+          : `本机账号 · ${count} 条记录`;
+  }
   els.accountList.innerHTML = accounts
     .map((account) => {
       const isActive = account.id === activeAccountId;
@@ -1108,7 +1151,7 @@ function renderAccountPanel() {
       `;
     })
     .join("");
-  renderPasswordManager();
+  if (activeAccountPanel === "admin") renderPasswordManager();
 }
 
 function renderPasswordManager() {
@@ -3242,6 +3285,10 @@ function exposeFallbackActions() {
 function bindEvents() {
   els.accountMenuBtn.addEventListener("click", () => toggleAccountMenu());
   els.closeAccountMenuBtn.addEventListener("click", () => toggleAccountMenu(false));
+  els.openLoginPanelBtn.addEventListener("click", () => showAccountPanel("login"));
+  els.openAccountAdminBtn.addEventListener("click", () => showAccountPanel("admin"));
+  els.backAccountHomeFromLoginBtn.addEventListener("click", () => showAccountPanel("home"));
+  els.backAccountHomeFromAdminBtn.addEventListener("click", () => showAccountPanel("home"));
   els.createAccountBtn.addEventListener("click", loginAccount);
   els.confirmDeleteAccountBtn.addEventListener("click", deleteAccount);
   els.cancelDeleteAccountBtn.addEventListener("click", () => {

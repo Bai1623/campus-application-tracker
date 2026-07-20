@@ -162,10 +162,29 @@
               </button>
             </div>
 
-            <div id="accountList" class="account-list" aria-label="账号列表"></div>
+            <div id="accountHomePanel" class="account-home-panel">
+              <div class="account-home-card">
+                <div class="account-avatar" aria-hidden="true">秋</div>
+                <div>
+                  <p class="section-label">当前身份</p>
+                  <strong id="accountHomeName">本地游客</strong>
+                  <span id="accountHomeMeta">游客数据只保存在本机</span>
+                </div>
+              </div>
+              <div class="account-entry-actions" aria-label="账号入口">
+                <button id="openLoginPanelBtn" class="text-entry-button" type="button">去登录</button>
+                <button id="openAccountAdminBtn" class="text-entry-button" type="button">账号管理</button>
+              </div>
+            </div>
 
-            <div class="account-editor">
-              <label for="newAccountNameInput">登录账号</label>
+            <div id="accountLoginPanel" class="account-editor hidden">
+              <div class="account-subpanel-head">
+                <div>
+                  <p class="section-label">云端同步</p>
+                  <label for="newAccountNameInput">登录账号</label>
+                </div>
+                <button id="backAccountHomeFromLoginBtn" class="mini-button" type="button">返回</button>
+              </div>
               <div class="account-input-row">
                 <input id="newAccountNameInput" type="text" maxlength="24" placeholder="例如：我的秋招" autocomplete="off" />
                 <button id="createAccountBtn" class="mini-button strong-mini" type="button">登录</button>
@@ -173,8 +192,15 @@
               <input id="newAccountPasswordInput" type="password" placeholder="账号密码" autocomplete="current-password" />
             </div>
 
-            <div class="account-editor">
-              <label>管理员账户</label>
+            <div id="accountAdminPanel" class="account-editor hidden">
+              <div class="account-subpanel-head">
+                <div>
+                  <p class="section-label">本机管理</p>
+                  <label>管理员账户</label>
+                </div>
+                <button id="backAccountHomeFromAdminBtn" class="mini-button" type="button">返回</button>
+              </div>
+              <div id="accountList" class="account-list" aria-label="账号列表"></div>
               <div id="accountPasswordGate" class="account-security-gate"></div>
               <div id="accountRecoveryList" class="account-security-list"></div>
               <div id="deleteAccountConfirm" class="delete-confirm hidden">
@@ -248,7 +274,7 @@
 
         <footer class="app-footer" aria-label="版权与作者信息">
           <span>bai@copyright</span>
-          <span id="appVersionInfo" class="version-info">v2.2.9 · 更新于 2026.07.19</span>
+          <span id="appVersionInfo" class="version-info">v2.2.10 · 更新于 2026.07.20</span>
         </footer>
 
         <nav class="bottom-nav" aria-label="底部模块导航">
