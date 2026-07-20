@@ -15,11 +15,13 @@ function assert(condition, message) {
 assert(html.includes('id="overviewListView"'), "overview module should contain the flat list result container");
 assert(!html.includes('data-view="table"'), "records module should not expose a list/table tab");
 assert(app.includes("function renderOverviewList"), "app should render the list inside overview");
+assert(app.includes("function selectOverviewFilter"), "overview status chips should use one function that always reveals result list");
+assert(app.includes("overviewListVisible = true;"), "overview status chips should reveal all matching records including all records");
 assert(app.includes("askDueCheckStatusChange"), "due check should ask whether status changed");
 assert(app.includes("data-due-status"), "due check dialog should offer target statuses");
 assert(!/if \(filterTarget\)[\s\S]{0,400}setModule\("records"\)/.test(app), "status filter should stay in overview");
 assert(!/els\.sortSelect\.addEventListener\("change", render\)/.test(app), "sort changes should render overview results directly");
-assert(app.includes('const APP_VERSION = "2.2.10"'), "app version should be bumped for this iteration");
+assert(app.includes('const APP_VERSION = "2.2.11"'), "app version should be bumped for this iteration");
 assert(app.includes("function recordsFromRawImportInput"), "link import should support pasted raw JSON data");
 assert(app.includes("const rawRecords = recordsFromRawImportInput(input)"), "link import should try raw/original data before import tokens");
 assert(html.includes("原始长链接 / 原始 JSON"), "import UI should explicitly mention original long links and raw JSON");
@@ -54,8 +56,11 @@ assert(app.includes("async function buildCloudPasswordVerifier"), "app should de
 assert(app.includes("async function loginAccount"), "app should use login semantics for cloud accounts");
 assert(app.includes("await activateCloudSyncWithPassword(account, password)"), "login should derive cloud sync identity from the account password");
 assert(app.includes("await loginCloudAccount(identity)"), "login should ask the cloud account registry before creating a cloud account");
-assert(app.includes("该账号密码错误"), "login should distinguish wrong password from no backup data");
+assert(app.includes("当前账号已被注册，请输入密码登陆。"), "login password mismatch copy should explain registered account");
+assert(app.includes("async function showPasswordMismatchDialog"), "login password mismatch should use app modal instead of inline-only feedback");
 assert(app.includes("当前无账号，是否新建账号？"), "login should ask before creating a cloud account when the account name does not exist");
+assert(app.includes("当前必须保留一个账号，无法删除"), "admin delete should explain why the last account cannot be removed");
+assert(!app.includes('data-admin-delete-account="${account.id}" ${accounts.length <= 1 ? "disabled" : ""}'), "last account delete button should remain clickable so feedback can appear");
 assert(app.includes('setAccountFeedback("云端暂无数据。现在开始秋招吧！"'), "login should tell the user when cloud has no backup");
 assert(!app.includes("baishenhua"), "cloud sync code must not be hard-coded in the app");
 assert(app.includes('action: "account-login"'), "new logins should query the cloud account registry");

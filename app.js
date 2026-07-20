@@ -6,7 +6,7 @@ const OVERDUE_MONTHS_KEY = "campus-application-tracker:overdue-months:v1";
 const MASTER_PASSWORD_KEY = "campus-application-tracker:master-password:v1";
 const CLOUD_BACKUP_PREFIX = "campus-application-tracker:cloud-backups:v1:";
 const CLOUD_SYNC_SETTINGS_PREFIX = "campus-application-tracker:cloud-sync:v1:";
-const APP_VERSION = "2.2.10";
+const APP_VERSION = "2.2.11";
 const APP_UPDATED_AT = "2026.07.20";
 
 const STATUSES = [
@@ -1204,7 +1204,7 @@ function renderPasswordManager() {
           <input type="password" placeholder="输入新密码" autocomplete="new-password" data-reset-password-input="${account.id}" />
           <div class="account-admin-actions">
             <button class="mini-button" type="button" data-reset-password-account="${account.id}">重置密码</button>
-            <button class="mini-button danger-mini" type="button" data-admin-delete-account="${account.id}" ${accounts.length <= 1 ? "disabled" : ""}>删除账号</button>
+            <button class="mini-button danger-mini" type="button" data-admin-delete-account="${account.id}">删除账号</button>
           </div>
         </div>
       `,
@@ -1284,7 +1284,7 @@ async function loginAccount() {
 
   let account = accounts.find((item) => item.name === normalizedName);
   if (account && !(await accountPasswordMatches(account, password))) {
-    setAccountFeedback("账号密码不对，无法登录。", "error");
+    await showPasswordMismatchDialog();
     els.newAccountPasswordInput.select();
     return;
   }
@@ -1429,7 +1429,8 @@ function lockMasterPassword() {
 
 function requestDeleteAccount(accountId) {
   if (accounts.length <= 1) {
-    setAccountFeedback("至少保留一个账号。", "error");
+    setAccountFeedback("当前必须保留一个账号，无法删除。", "error");
+    showToast("当前必须保留一个账号，无法删除");
     return;
   }
   if (!masterPasswordUnlocked) {
@@ -1446,7 +1447,8 @@ function requestDeleteAccount(accountId) {
 
 function deleteAccount() {
   if (accounts.length <= 1) {
-    setAccountFeedback("至少保留一个账号。", "error");
+    setAccountFeedback("当前必须保留一个账号，无法删除。", "error");
+    showToast("当前必须保留一个账号，无法删除");
     return;
   }
   const account = accounts.find((item) => item.id === pendingDeleteAccountId);
@@ -1973,6 +1975,13 @@ function revealOverviewList(scroll = false) {
   if (scroll) {
     els.overviewResultsPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+}
+
+function selectOverviewFilter(status = "all", metric = "all") {
+  activeStatus = status || "all";
+  activeMetric = metric || "all";
+  overviewListVisible = true;
+  revealOverviewList(true);
 }
 
 function populateSelects() {
@@ -2757,13 +2766,25 @@ async function createCloudAccount(identity) {
   return result;
 }
 
+async function showPasswordMismatchDialog() {
+  const message = "当前账号已被注册，请输入密码登陆。";
+  setAccountFeedback(message, "error");
+  setCloudSyncFeedback(message, "error");
+  await askActionConfirm({
+    title: "账号已注册",
+    message,
+    confirmLabel: "知道了",
+    cancelLabel: "返回",
+    tone: "info",
+  });
+}
+
 async function prepareCloudAccountLogin(accountName, password) {
   const identity = await buildCloudLoginIdentity(accountName, password);
   let result = await loginCloudAccount(identity);
 
   if (result.status === "password_mismatch") {
-    setAccountFeedback("该账号密码错误。", "error");
-    setCloudSyncFeedback("该账号密码错误。", "error");
+    await showPasswordMismatchDialog();
     return null;
   }
 
@@ -2782,8 +2803,7 @@ async function prepareCloudAccountLogin(accountName, password) {
     }
     result = await createCloudAccount(identity);
     if (result.status === "password_mismatch") {
-      setAccountFeedback("该账号密码错误。", "error");
-      setCloudSyncFeedback("该账号密码错误。", "error");
+      await showPasswordMismatchDialog();
       return null;
     }
   }
@@ -2828,8 +2848,7 @@ async function checkAndOfferCloudSyncRestore(trigger = "manual", cloudResult = n
   try {
     const result = cloudResult || (await fetchCloudSyncLatest(settings));
     if (result?.status === "password_mismatch") {
-      setAccountFeedback("该账号密码错误。", "error");
-      setCloudSyncFeedback("该账号密码错误。", "error");
+      await showPasswordMismatchDialog();
       return false;
     }
     if (result?.status === "account_not_found") {
@@ -3475,16 +3494,12 @@ function bindEvents() {
     }
 
     if (filterTarget) {
-      activeStatus = filterTarget.dataset.filterStatus;
-      activeMetric = filterTarget.dataset.filterMetric || "all";
-      revealOverviewList(true);
+      selectOverviewFilter(filterTarget.dataset.filterStatus, filterTarget.dataset.filterMetric || "all");
       return;
     }
 
     if (statTarget) {
-      activeStatus = statTarget.dataset.statStatus;
-      activeMetric = statTarget.dataset.statMetric;
-      revealOverviewList(true);
+      selectOverviewFilter(statTarget.dataset.statStatus, statTarget.dataset.statMetric || "all");
       return;
     }
 
